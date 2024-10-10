@@ -1,1 +1,3 @@
-This repository contains representative samples of my work in R for display.
+Welcome! This repository is a showcase of representative samples of my work in R to share as examples of my work during the graduate school application process.
+
+Please note that any unpublished data has been obscured to protect our group's unpublished findings. I've done my best to make it clear when this is the case. Any documents with nonsense or generic labels (ie. "HUMAN-1" cells treated with "applejuice" and "orangejuice", plots showing expression of "GENE1", etc) have been edited and do not represent real-world data. I've also placed a clear note at the top of each document which has been altered in this way to further prevent confusion.
