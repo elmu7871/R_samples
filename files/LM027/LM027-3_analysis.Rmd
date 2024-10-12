@@ -1,0 +1,70 @@
+---
+title: "LM027-3_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup}
+library(here)
+library(tidyverse)
+library(readr)
+library(purrr)
+library(ggpubr)
+```
+
+```{r read in and format data}
+data <- readr::read_csv(file = here("LM027", "LM027-3_OD450.csv"), locale=locale(encoding="latin1"))
+
+data$Time <- paste(1:nrow(data))
+
+data <- data[,c(1, 3:length(colnames(data)))]
+
+samplenames <- c("oldkit_DF1", "newkit_DF1", "oldkit_DF2", "newkit_DF2", "oldkit_DF4", "newkit_DF4", "oldkit_DF8", "newkit_DF8", "oldkit_DF16", "newkit_DF16", "oldkit_DF32", "newkit_DF32", "oldkit_DF64", "newkit_DF64", "oldkit_blank", "newkit_blank")
+
+colnames(data)[2:17] <- samplenames
+
+data_oldkit <- data %>%
+  dplyr::select(Time, grep(pattern = "oldkit", colnames(data)))
+
+data_newkit <- data %>%
+  dplyr::select(Time, grep(pattern = "newkit", colnames(data)))
+
+data_oldkit_norm <- (data_oldkit %>% purrr::keep(is.numeric) - data_oldkit$oldkit_blank) %>% rownames_to_column(var = "Time")
+
+data_newkit_norm <- (data_newkit %>% purrr::keep(is.numeric) - data_newkit$newkit_blank) %>% rownames_to_column(var = "Time")
+
+data_norm <- left_join(data_oldkit_norm, data_newkit_norm, by = "Time")
+
+data_norm <- data_norm %>% dplyr::select(!grep(pattern = "blank", colnames(data_norm)))
+
+data_norm <- pivot_longer(data_norm, 
+                          cols = oldkit_DF1:newkit_DF64, 
+                          names_to = "sample")
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("kit", "DF"))
+
+data_norm$DF <- data_norm$DF %>%
+  gsub(pattern = "DF", replacement = "") %>%
+  as.numeric()
+```
+
+```{r stuff and things}
+tmp <- as.character(c(1:122))
+
+data_norm$Time <- factor(data_norm$Time, levels = tmp)
+data_norm$DF <- factor(data_norm$DF, levels = c("DF1", "DF2", "DF4", "DF8", "DF16", "DF32", "DF64"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+pGoodplot <- data_norm %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm, linetype = kit, color = DF, group = interaction(DF, kit)), linewidth = 1) +
+  theme_classic() +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle("LM027-3 ALDH2 activity assay: activity solution activity comparison") +
+  labs(caption = "Activity solution from two ALDH2 activity assay kits was combined with varying dilutions of cell lysate to determine comparative activity of reagents in each kit.")
+
+ggsave(plot = pGoodplot, filename = here("LM027", "LM027-3_plot.png"), device = "png", height = 10, width = 10)
+
+```

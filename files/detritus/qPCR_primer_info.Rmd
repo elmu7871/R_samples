@@ -1,0 +1,254 @@
+---
+title: "qPCR_primer_info"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+``` {r setup, include = FALSE}
+knitr::opts_chunk$set(echo=FALSE)
+## Bioconductor needs to be installed for most of these packages to work. As of 11/15/2021, the most recent version of Bioconductor is 3.14, but it only works with the latest version of R. My R studio says it's up to date but Bioconductor says R is not, so I'm installing BC 3.10 instead. idk man
+
+#BiocManager::install("TxDb.Hsapiens.UCSC.hg38.knownGene")
+# if any of the following packages fail to load, it's because they need to be installed first. Remove the # from the corresponding install command above, run it, replace the #, and re-run the library() command. If that doesn't work, check that Bioconductor is installed and updated.
+
+library(here)
+library(tidyverse)
+
+library(reshape2)
+library(msigdbr)
+library(GeneOverlap)
+library(tximport)
+library(DESeq2)
+library(GenomicFeatures)
+library(GenomicRanges)
+library(AnnotationDbi)
+library(BiocGenerics)
+library(genomation)
+library(BSgenome.Hsapiens.UCSC.hg38) # use hg38 for the whole document
+library(UpSetR)
+library(knitr)
+library(valr)
+library(Hmisc) # cut2
+library(igraph) # idk what this is but ChIPseeker wants it
+library(ChIPseeker)
+# library(clusterProfiler) # do i need
+library(TxDb.Hsapiens.UCSC.hg38.knownGene) 
+library(annotatr) # annotate binding sites
+library(viridis) # nice color palette
+library(ppcor)
+library(GGally)
+library(network)
+library(sna)
+library(ggplot2)
+
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(ggrepel)
+library(annotatr)
+library(tidyverse)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+```
+
+```{r functions}
+# list of functions 
+# crash course in functions:
+# function() is a user-defined function (premade functions include mean(), sum(), etc.). You first type function_name <- function(x) {ABC}, where x represents any arguments you'll present when you execute the function. A function doen't necessarily have to have arguments. ABC represents all the operations you want the function to perform. Within ABC, you'll specify what is done with x. When you run the function, you'd type function_name(y), where y represents whatever actual arguments you're presenting in that application. R will then execute whatever code you put in the curly brackets when you defined the function, using your input y as an argument wherever you specified for it to. You can have as many arguments as you need in a function.
+
+# this function is called plain() and it has two arguments: x and ... . plain() will print whatever numbers are passed to it in plain notation and without adding zeroes to pad out to a uniform length.
+# no idea why we want this--come back and update when i know why
+plain <- function(x,...) {
+  format(x, ..., scientific = FALSE, trim = TRUE)
+}
+
+# here's a doozy!
+
+extractPrecursorMatureTxi <- function(txiObject) {
+
+  x <- txiObject$abundance
+  
+  # 
+  x <- data.frame("transcript_id"=rownames(x),x)
+  
+  mytxi <- vector(mode = "list")
+  
+  mytxi$abundance$ercc <- txiObject$abundance[c(2:93),] # make ERCC and rRNA matrix
+  
+  x <- x[-c(1:93),] # remove ERCC and rRNA
+  
+  x <- plyr::join(tx2gene, x, by = "transcript_id", type = "right")
+
+  # extract precursor levels 
+  precursor <- x[grepl(pattern = "^pre_", x = x$transcript_id),]
+
+  # add info per gene
+  mytxi$abundance$precursor <-  plyr::join(geneInfo %>% filter(str_detect(transcript_id, "^pre_")) %>% dplyr::select(gene_id,symbol, biotype) %>% distinct(), precursor, by = "gene_id", type = "right") %>% dplyr::select(-transcript_id)
+  
+  # identify intronless genes (these need to be dealt with due to quantification strategy)
+  intronless <- tx2gene %>%  group_by(gene_id) %>% tally() %>% filter(n == 1) %>% pull(gene_id)
+
+  # extract mature levels (this will include intronless RNAs)
+  mature <- x[!grepl(pattern = "^pre_", x = x$transcript_id),]
+
+  # sum of all isoforms of the same gene
+  matureGene <- mature %>% dplyr::select(-transcript_id) %>%
+    group_by(gene_id) %>% summarise_if(is.numeric, sum, na.rm=TRUE)
+
+  #  define subset of txInfo used for join below
+  subTxinfo <- geneInfo %>% dplyr::select(gene_id,symbol, biotype) %>% distinct()
+  
+  # join mature transcript level with gene info
+  mytxi$abundance$mature <- plyr::join(geneInfo %>% dplyr::select(gene_id,symbol, biotype) %>% distinct(), mature, by = "gene_id", type = "right")
+
+  # join mature gene level with gene info
+  mytxi$abundance$matureGene <- plyr::join(geneInfo %>% dplyr::select(gene_id,symbol, biotype) %>% distinct(), matureGene, by = "gene_id", type = "right")
+  rm(x)
+  
+  # do it all over again for counts
+  x <- txiObject$counts
+  
+  #colnames(x) <- paste(sampleData$tx, sampleData$time, sampleData$rep, sep = "_")
+
+  mytxi$counts$ercc <- txiObject$counts[c(2:93),] # make ERCC and rRNA matrix
+  
+  x <- data.frame("transcript_id"=rownames(x),x)
+
+  x <- x[-c(1:93),] # remove ERCC and rRNA
+  
+  x <- plyr::join(tx2gene, x, by = "transcript_id", type = "right")
+
+  # extract precursor levels 
+  precursor <- x[grepl(pattern = "^pre_", x = x$transcript_id),]
+  
+  # add info per gene
+  mytxi$counts$precursor <- plyr::join(geneInfo %>% filter(str_detect(transcript_id, "^pre_")) %>% dplyr::select(gene_id,symbol, biotype) %>% distinct(), precursor, by = "gene_id", type = "right") %>% dplyr::select(-transcript_id)
+  
+  # identify intronless genes (these need to be dealt with due to quantification strategy)
+  intronless <- tx2gene %>%  group_by(gene_id) %>% tally() %>% filter(n == 1) %>% pull(gene_id)
+
+  # extract mature levels (this will include intronless RNAs)
+  mature <- x[!grepl(pattern = "^pre_", x = x$transcript_id),]
+
+  # sum of all isoforms of the same gene
+  matureGene <- mature %>% dplyr::select(-transcript_id) %>%
+    group_by(gene_id) %>% summarise_if(is.numeric, sum, na.rm=TRUE)
+
+  #  define subset of txInfo used for join below
+  subTxinfo <- geneInfo %>% dplyr::select(gene_id,symbol, biotype) %>% distinct()
+  
+  # join mature transcript level with gene info
+  mytxi$counts$mature <- plyr::join(geneInfo %>% dplyr::select(gene_id,symbol, biotype) %>% distinct(), mature, by = "gene_id", type = "right")
+
+  # join mature gene level with gene info
+  mytxi$counts$matureGene  <- plyr::join(geneInfo %>% dplyr::select(gene_id,symbol, biotype) %>% distinct(), matureGene, by = "gene_id", type = "right")
+  
+  mytxi
+
+}
+
+
+## function for plotting changes
+plotgeneFC <- function(deseq_object, goi) {
+  
+
+
+  mygene <- annotation %>% filter(symbol==goi)
+  d <- plotCounts(deseq_object, gene = mygene$gene, intgroup = c("Treatment","Time"), returnData = TRUE) 
+  n <- d %>% filter(Time==0) %>% summarise(mean(count)) %>% pull() # unstimulated average
+  
+  d <- d %>% mutate(fc = count/n)
+  
+  d$Time <- as.numeric(as.character(d$Time))
+
+  ggplot(d, aes(x = Time, y = fc, color = Treatment, group = Treatment)) + 
+    geom_point() + stat_summary(fun=mean, geom="line") +
+    scale_color_manual(values = c("black","red")) +
+    ggtitle(mygene$symbol) +
+    ylab("Fold change vs unstimulated") +
+    xlab("Hours after AngII stimulation") +
+    theme_few() 
+
+
+}
+
+plotgeneCounts <- function(deseq_object, goi) {
+  
+
+
+  mygene <- annotation %>% filter(symbol==goi)
+  d <- plotCounts(deseq_object, gene = mygene$gene, intgroup = c("Treatment","Time"), returnData = TRUE) 
+  d$Time <- as.numeric(as.character(d$Time))
+
+  ggplot(d, aes(x = Time, y = count, color = Treatment, group = Treatment)) + 
+    geom_point() + stat_summary(fun=mean, geom="line") +
+    scale_color_manual(values = c("black","red")) +
+    ggtitle(mygene$symbol) +
+    ylab("Normalized Counts") +
+    xlab("Hours after AngII stimulation") +
+    theme_few() 
+
+
+}
+```
+
+```{r get expression, include = FALSE}
+
+# read in gene information
+geneInfo <- read_csv(here("detritus","gencode.v26.primary.info.csv.zip"), col_names = F) 
+
+colnames(geneInfo) <- c("gene_id","transcript_id","biotype","symbol")
+
+TaqmanProbes <- data.frame(
+  symbol = c(
+  "ACTA2", "ALDH2", "ALDH3A1", "AMOT", "B2M", "BMP2", "CDH1", "COL1A1", "COL2A1", "CTGF", "CYR61", "FGF7", "FGF10", "FN1", "FOS", "FZD8", "GAPDH", "GREM1", "GUSB", "HGF", "IGF1", "IL1B", "JUN", "KRT5", "KRT14", "MMP3", "NOV", "OCLN", "PDGFA", "PDGFB", "POLR2A", "PPIA", "PPIB", "PTPRA", "RUNX1", "SERPINE", "TGFB1", "TJP2", "TNF", "VIM", "WISP1", "WWTR1", "YAP1"
+)
+)
+
+probeGeneInfo <- left_join(
+  TaqmanProbes, geneInfo, by = "symbol"
+)
+
+# no underage transcripts allowed
+probeGeneInfo <- probeGeneInfo[!grepl(pattern = "pre_", probeGeneInfo$transcript_id),]
+
+
+
+# What annotation categories are available?
+# builtin_annotations() comes with annotatr
+
+possible_annotations <- builtin_annotations() # this includes stuff from hg19 and other species--every possible annotation
+
+
+# How about only those containing "hg38"
+grep("hg38_genes", possible_annotations, value = T)
+hg38_annots <- grep("hg38_genes", possible_annotations, value = T)
+
+my_hg38_annots <- hg38_annots[c(3,4,5,7,10)]
+
+
+# build the annotation database
+annotations <- build_annotations(genome = 'hg38', annotations = my_hg38_annots)
+
+annots_Taqman <- dplyr::filter(as.data.frame(annotations), tx_id %in% probeGeneInfo$transcript_id)
+
+tx_lengths <- annots_Taqman %>%
+  dplyr::select(width, tx_id, symbol, type) %>%
+  group_by(tx_id, type) %>%
+  slice_max(order_by = width, n =1) %>%
+  group_by(tx_id) %>%
+  summarise(length = sum(width))
+colnames(tx_lengths)[1] <- "transcript_id"
+
+symbol_to_length <- left_join(
+  dplyr::select(probeGeneInfo, symbol, transcript_id),
+  tx_lengths,
+  by = "transcript_id"
+) %>%
+  group_by(symbol) %>%
+  slice_max(order_by = length, n = 1)
+symbol_to_length <- symbol_to_length[!is.na(symbol_to_length$length),]
+
+symbol_to_length <- symbol_to_length %>%
+  arrange(desc(length))
+
+view(symbol_to_length)
+```

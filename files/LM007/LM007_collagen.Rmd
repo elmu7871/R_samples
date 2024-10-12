@@ -1,0 +1,171 @@
+---
+title: "LM007_collagen"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup}
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+library(dplyr)
+library(here)
+library(tidyverse)
+library(reshape2)
+library(ggsignif)
+library(sjmisc)
+library(cowplot)
+```
+
+```{r import csvs}
+myfiles <- data.frame(
+  files = list.files(path = here::here("LM007"), full.names = TRUE, recursive = TRUE, all.files = FALSE)
+) %>%
+  dplyr::filter(
+    grepl(
+      "csv", files
+      ) ) %>%
+      dplyr::filter(
+      grepl(
+        "new", files
+      ) )
+
+samplenames <- c("unstim1_starve", "unstim2_starve", "unstim3_complete", "unstim4_complete", "TGFB1_starve", "TGFB2_starve", "TGFB3_complete", "TGFB4_complete")
+
+area_0h <-  data.frame(
+  "Sample" = samplenames,
+  "0h" = (read_csv(file = as.character(myfiles %>% filter(grepl("0h", files)))) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Area"
+  ))
+)
+
+area_24h <-  data.frame(
+  "Sample" = samplenames,
+  "0h" = (read_csv(file = as.character(myfiles %>% filter(grepl("24h", files)))) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Area"
+  ))
+)
+
+area_48h <-  data.frame(
+  "Sample" = samplenames,
+  "0h" = (read_csv(file = as.character(myfiles %>% filter(grepl("48h", files)))) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Area"
+  ))
+)
+
+area_72h <-  data.frame(
+  "Sample" = samplenames,
+  "0h" = (read_csv(file = as.character(myfiles %>% filter(grepl("72h", files)))) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Area"
+  ))
+)
+
+```
+
+```{r calculate contraction}
+area <- left_join(
+  area_0h, area_24h, by = "Sample"
+) %>%
+  left_join(
+    area_48h, by = "Sample"
+  ) %>%
+  left_join(
+    area_72h, by = "Sample"
+  )
+
+
+colnames(area) <- c("Sample", "Area_0h", "Area_24h", "Area_48h", "Area_72h")
+
+area_norm <- area %>%
+  dplyr::mutate(
+  "h24" = Area_24h / Area_0h,
+  "h48" = Area_48h / Area_0h,
+  "h72" = Area_72h / Area_0h,
+  .keep = "unused"
+  )
+
+area_norm$Sample <- area_norm$Sample %>%
+  gsub(
+    pattern = "1|2|3|4",
+    replacement = ""
+  )
+
+# area_norm <- area_norm %>%
+#   group_by(Sample) %>%
+#   dplyr::summarise(mean24h = mean(h24), mean48h = mean(h48), mean72h = mean(h72))
+
+area_norm <- reshape2::melt(area_norm)
+
+colnames(area_norm) <- c("Stim", "Time", "AreaNorm")
+
+area_norm <- separate(data = area_norm, col = Stim, into = c("Stim", "Serum"), sep = "_")
+```
+
+```{r ggplot o'clock}
+pLM007_starve <- ggbarplot((area_norm %>% dplyr::filter(Serum == "starve")), 
+           x = "Time", 
+           y = "AreaNorm",
+           fill = "Stim",
+           position = position_dodge(0.8),
+           add = c("mean_se", "point"),
+           ) +
+            geom_signif(
+            comparisons = list(c("unstim", "TGFB")),
+            map_signif_level = TRUE,
+            test = t.test
+             ) +
+             facet_grid(~ Serum) +
+           ylim(0,0.9) +
+           theme_few()
+
+pLM007_complete <- ggbarplot((area_norm %>% dplyr::filter(Serum == "complete")), 
+           x = "Time", 
+           y = "AreaNorm",
+           fill = "Stim",
+           position = position_dodge(0.8),
+           add = c("mean_se", "point")
+           ) +
+           facet_grid(~ Serum) +
+            geom_signif(
+            comparisons = list(c("unstim", "TGFB")),
+            map_signif_level = TRUE,
+            test = t.test
+             ) +
+             ylim(0,0.9) +
+           theme_few()
+
+title <- ggdraw() + 
+  draw_label(
+    "LM007 rep 2 collagen gel contraction +/- TGFB, +/- serum starve",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+
+plots <- cowplot::plot_grid(pLM007_starve, pLM007_complete, nrow = 1)
+
+pLM007 <- cowplot::plot_grid(
+  title, plots,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+
+ggsave(plot = pLM007, filename = "LM007new_plot.png", device = "png", path = here::here("LM007"))
+```

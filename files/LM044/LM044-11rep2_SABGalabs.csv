@@ -1,0 +1,25 @@
+Well ID,Name,Well,Mean OD [615]
+SPL1,nobleo_Alda0uM_rep1,A1,0.328
+SPL2,nobleo_Alda5uM_rep1,A2,0.336
+SPL3,nobleo_Alda40uM_rep1,A3,0.305
+SPL4,plusbleo_Alda0uM_rep1,A4,0.269
+SPL5,plusbleo_Alda5uM_rep1,A5,0.242
+SPL6,plusbleo_Alda40uM_rep1,A6,0.239
+SPL7,nobleo_Alda0uM_rep2,B1,0.203
+SPL8,nobleo_Alda5uM_rep2,B2,0.28
+SPL9,nobleo_Alda40uM_rep2,B3,0.279
+SPL10,plusbleo_Alda0uM_rep2,B4,0.266
+SPL11,plusbleo_Alda5uM_rep2,B5,0.209
+SPL12,plusbleo_Alda40uM_rep2,B6,0.172
+SPL13,nobleo_Alda0uM_rep3,C1,0.225
+SPL14,nobleo_Alda5uM_rep3,C2,0.295
+SPL15,nobleo_Alda40uM_rep3,C3,0.237
+SPL16,plusbleo_Alda0uM_rep3,C4,0.281
+SPL17,plusbleo_Alda5uM_rep3,C5,0.233
+SPL18,plusbleo_Alda40uM_rep3,C6,0.174
+SPL19,NA_NA_blank1,D1,0.122
+SPL20,NA_NA_blank2,D2,0.09
+SPL21,NA_NA_blank3,D3,0.087
+SPL22,NA_NA_blank4,D4,0.069
+SPL23,NA_NA_blank5,D5,0.061
+SPL24,NA_NA_blank6,D6,0.055

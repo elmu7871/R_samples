@@ -1,0 +1,138 @@
+---
+title: "LM051-1_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup, echo = FALSE,results = FALSE, message = FALSE}
+library(here)
+library(tidyverse)
+library(ggpubr)
+library(conflicted)
+library(ggprism)
+```
+
+```{r read in and format data, results = FALSE, message = FALSE, warning=FALSE}
+data <- readr::read_csv(file = here("LM051", "LM051-1_OD450.csv"), locale=locale(encoding="latin1"))
+
+samplenames <- c("normal_rep1", "fibrotic_rep1",
+                 "normal_rep2", "fibrotic_rep2",
+                 "normal_rep3", "fibrotic_rep3",
+                 "normal_rep4", "fibrotic_rep4",
+                 "trans_rep1", "Rnomito_rep1",
+                 "trans_rep2", "Rnomito_rep2",
+                 "trans_rep3", "blank_rep1",
+                 "trans_rep4", "blank_rep2")
+                 
+
+stopifnot(length(colnames(data)) == length(samplenames))
+
+colnames(data) <- samplenames
+
+data <- data %>% mutate(blank_NA = (blank_rep1 + blank_rep2) / 2)
+
+blanks <- data[,grepl(pattern = "blank", colnames(data))]
+
+tmp <- data %>%
+  purrr::keep(is.numeric) - data$blank_NA
+
+tmp <- tmp %>% rownames_to_column(var = "Time")
+
+blanks <- blanks %>% rownames_to_column(var = "Time")
+  
+data_norm <- tmp[,!grepl(pattern = "blank", colnames(tmp))]
+
+data_norm <- pivot_longer(data_norm, 
+                          cols = normal_rep1:trans_rep4, 
+                          names_to = "sample")
+
+blanks <- pivot_longer(blanks, 
+                          cols = blank_rep1:blank_NA, 
+                          names_to = "sample")
+  
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("sample", "rep"))
+
+blanks <- blanks %>% 
+  separate(col = sample,
+           into = c("sample", "rep"))
+
+data_norm <- rbind(data_norm, blanks)
+```
+
+```{r plot OD v time, message = FALSE, results = FALSE, fig.dim = c(4,4), echo = FALSE, warning=FALSE}
+times <- as.character(c(1:121))
+data_norm$Time <- factor(data_norm$Time, levels = times)
+data_norm$rep <- factor(data_norm$rep, levels = c("rep1", "rep2", "rep3", "rep4", "NA"))
+data_norm$sample <- factor(data_norm$sample, levels = c("normal", "trans", "fibrotic", "Rnomito", "blank"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+
+
+  tmp <- as.character(unique(data_norm$sample))
+  plots <- list()
+#  prettycolors <- c("grey10", "grey20", "grey30", "grey40", "grey50", "grey60", "grey70", "grey80", "grey90", "grey100")
+  
+  
+# QC: making sure none of the rep wells came out significantly different than the others before I average them together
+for (i in 1:length(tmp)) {
+  plots[[i]] <- (data_norm[grep(pattern = tmp[i], data_norm$sample),]) %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm, color = rep, group = interaction(sample, rep)), linewidth = 1.5) +
+  theme_prism() +
+#  scale_color_manual(values = c("grey10", "grey90", "grey30", "grey65")) + # had to put it in color because the grey is so hard to see
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle(as.character(tmp[i]))
+}
+
+cowplot <- cowplot::plot_grid(plotlist = plots[c(1:4)])
+
+plot <- plots[5]
+
+ggplot(data_norm) +
+  geom_line(aes(x = Time, y = OD450_norm, color = sample, group = interaction(sample, rep)))
+
+# ggsave(plot = cowplot, filename = here("LM051", "LM051-1_plot.png"), device = "png", height = 10, width = 10, bg = "white")
+
+data_norm <- data_norm[!grepl(pattern = "blank", data_norm$sample),]
+
+```
+
+the activity, especially for normal, came out completely crazy. I was going to average the reps together and calculate activity from that, but the spread of the endpoints within each condition prohibits it. Instead, I'll calculate them individually, display the variation in the final plot, and probably just repeat the experiment with fresh reagents.
+
+```{r calculate activity, warning=FALSE}
+data_activity <- data_norm[grepl(pattern = 120, data_norm$Time),]
+
+data_activity$OD30 <- data_norm[grepl(pattern = 30, data_norm$Time),]$OD450_norm
+data_activity$OD200 <- data_norm[grepl(pattern = 120, data_norm$Time),]$OD450_norm
+data_activity$activity <- (data_activity$OD200 - data_activity$OD30) / 90
+
+data_activity <- data_activity %>%
+  dplyr::select(!Time) %>%
+  dplyr::select(!OD450_norm)
+
+data_activity$rep <- factor(data_activity$rep, levels = c("rep1", "rep2", "rep3", "rep4", "NA"))
+data_activity$sample <- factor(data_activity$sample, levels = c("normal", "trans", "fibrotic", "Rnomito"))
+```
+
+Eventually I'll include a chunk here calculating a regression model for each sample's points. I need to determine the best model to use for that. For this particular data, because they're all over the place and the dose responses do not appear to be following any consistent pattern, I won't calculate regression at all.
+
+```{r plot activity, warning=FALSE}
+
+activityplot <- data_activity %>%
+  dplyr::filter(sample != "Rnomito") %>%
+  ggplot(aes(x = sample, y = activity, fill = sample)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_jitter(color = "black", size = 2, width = 0.2) +
+  theme_prism() +
+  scale_fill_manual(values = c("grey75", "grey50", "grey25")) +
+  theme(legend.position = "none") +
+  ggtitle("LM051-1 IPF lung ALDH2 activity assay") +
+  labs(caption = "Each sample represents four technical replicates. Note variation.")
+  
+
+ggsave(plot = activityplot, filename = here("LM051", "LM051-1_activityPlot.png"), device = "png", width = 6, height = 5)
+
+```

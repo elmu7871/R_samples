@@ -1,0 +1,129 @@
+---
+title: "LM044-1_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup, echo = FALSE,results = FALSE, message = FALSE}
+library(here)
+library(tidyverse)
+library(readr)
+library(purrr)
+library(ggpubr)
+library(viridis)
+library(RColorBrewer)
+library(ggplot2)
+library(conflicted)
+library(purrr)
+library(ggthemes)
+```
+
+```{r read in and format data, results = FALSE, message = FALSE, warning=FALSE}
+data <- readr::read_csv(file = here("LM044", "LM044-1_OD450.csv"), locale=locale(encoding="latin1"))
+
+samplenames <- c("ALDH2_DMSO",
+                 "ALDH2_Alda40",
+                 "RnoMito_DMSO",
+                 "RnoMito_Alda40",
+                 "A549_DMSO",
+                 "A549_Alda20",
+                 "A549_Alda40",
+                 "blank_NA")
+                 
+
+stopifnot(length(colnames(data)) == length(samplenames))
+
+colnames(data) <- samplenames
+
+tmp <- data %>%
+  purrr::keep(is.numeric) - data$blank_NA
+
+tmp <- tmp %>% rownames_to_column(var = "Time")
+  
+data <- tmp[,!grepl(pattern = "blank_NA", colnames(tmp))]
+
+data_norm <- pivot_longer(data, 
+                          cols = ALDH2_DMSO:A549_Alda40, 
+                          names_to = "sample")
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("sample", "tx"))
+```
+
+```{r plot OD v time, message = FALSE, results = FALSE, fig.dim = c(4,4), echo = FALSE, warning=FALSE}
+times <- as.character(c(1:121))
+data$Time <- times
+data_norm$Time <- factor(data_norm$Time, levels = times)
+data_norm$tx <- factor(data_norm$tx, levels = c("DMSO", "Alda20", "Alda40", "NA"))
+data_norm$sample <- factor(data_norm$sample, levels = c("ALDH2", "RnoMito", "A549", "blank"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+
+
+  tmp <- as.character(unique(data_norm$sample))
+  plots <- list()
+  prettycolors <- c("Blues", "Blues", "Blues", "Blues", "Blues", "Blues", "OrRd", "OrRd", "OrRd", "OrRd", "PRGn")
+  
+for (i in 1:length(tmp)) {
+  plots[[i]] <- (data_norm[grep(pattern = tmp[i], data_norm$sample),]) %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm, color = tx, group = interaction(sample, tx),linetype = sample), linewidth = 1.25) +
+  theme_classic() +
+  scale_color_brewer(palette = prettycolors[i], direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle(as.character(tmp[i]))
+}
+
+cowplot <- cowplot::plot_grid(plotlist = plots)
+
+plots
+
+# ggsave(plot = cowplot, filename = here("LM036", "LM036-1_plot.png"), device = "png", height = 10, width = 20, bg = "white")
+
+```
+
+organizing thoughts for next analysis...
+goal is to generate a plot where dilution is on the x axis and "activity" is on the y axis. i suppose this means OD at min120-OD at min30 divided by 90?
+
+```{r calculate activity, warning=FALSE}
+data_activity <- data_norm[grepl(pattern = 100, data_norm$Time),]
+
+data_activity$OD30 <- data_norm[grepl(pattern = 30, data_norm$Time),]$OD450_norm
+data_activity$OD120 <- data_norm[grepl(pattern = 120, data_norm$Time),]$OD450_norm
+data_activity$activity <- (data_activity$OD120 - data_activity$OD30) / 90
+
+data_activity$tx <- factor(data_activity$tx, levels = c("DMSO", "Alda20", "Alda40", "NA"))
+data_activity$sample <- factor(data_activity$sample, levels = c("ALDH2", "RnoMito", "A549"))
+```
+
+Eventually I'll include a chunk here calculating a regression model for each sample's points. I need to determine the best model to use for that. For this particular data, because they're all over the place and the dose responses do not appear to be following any consistent pattern, I won't calculate regression at all.
+```{r calculate regression, message = FALSE, results = FALSE, echo = FALSE, warning=FALSE}
+```
+
+```{r plot activity, warning=FALSE}
+pActivitycurves <- data_activity[!is.na(data_activity$sample),] %>% 
+  ggplot(aes(x = sample, y = activity, fill = tx, group = tx)) +
+  geom_col(position = position_dodge()) +
+  scale_fill_manual(values = c("aquamarine2", "aquamarine3", "aquamarine4")) +  
+  theme_classic() +
+  ggtitle("LM044-1 activity")
+
+pActivitycurves
+# ggsave(plot = pActivitycurves, filename = here("LM044", "LM044-1_activityPlot.png"), device = "png")
+
+activityPlots <- list()
+
+for (i in 1:length(unique(data_activity$sample))) {
+  activityPlots[[i]] <- data_activity %>% dplyr::filter(sample == unique(data_activity$sample)[i]) %>%
+  ggplot() +
+  geom_col(aes(x = tx, y = activity, fill = tx)) +
+  theme_few() +
+  ggtitle(unique(data_activity$sample)[i])
+}
+
+activityplots_grid <- cowplot::plot_grid(plotlist = activityPlots, nrow = 1)
+
+ggsave(plot = activityplots_grid, filename = here("LM044", "LM044-1_activityPlots_separateaxes.png"), device = "png", width = 11, height = 4)
+
+```

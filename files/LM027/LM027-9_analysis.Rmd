@@ -1,0 +1,80 @@
+---
+title: "LM027-8_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup}
+library(here)
+library(tidyverse)
+library(readr)
+library(purrr)
+library(ggpubr)
+library(viridis)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+```{r read in and format data}
+data <- readr::read_csv(file = here("LM027", "LM027-9_OD450.csv"), locale=locale(encoding="latin1"))
+
+samplenames <- c("RnoMitoControl_max", "Fresh2_DF4", "GFrozen1_DF2", "RnoMitoControl_mid", "NFrozen1_DF1", "GFrozen1_DF4", "RnoMitoControl_min","NFrozen1_DF2",  "GFrozen2_DF1",  "Fresh1_DF1","NFrozen1_DF4","GFrozen2_DF2", "Fresh1_DF2", "NFrozen2_DF1", "GFrozen2_DF4", "Fresh1_DF4", "NFrozen2_DF2", "ControlALDH2KO_DF1", "Fresh2_DF1", "NFrozen2_DF4", "ControlALDH2KO_DF2", "Fresh2_DF2", "GFrozen1_DF1",  "blank_NA")
+                 
+
+stopifnot(length(colnames(data)) == length(samplenames))
+
+colnames(data) <- samplenames
+
+data_norm <- (data %>% purrr::keep(is.numeric) - data$blank_NA) %>% rownames_to_column(var = "Time")
+
+data_norm <- data_norm %>% dplyr::select(!grep(pattern = "blank", colnames(data_norm)))
+
+data_norm <- pivot_longer(data_norm, 
+                          cols = RnoMitoControl_max:GFrozen1_DF1, 
+                          names_to = "sample")
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("sample", "DF"))
+```
+
+```{r stuff and things}
+times <- as.character(c(1:122))
+
+data_norm$Time <- factor(data_norm$Time, levels = times)
+data_norm$DF <- factor(data_norm$DF, levels = c("max", "mid", "min", "DF1", "DF2", "DF4", "DF8"))
+data_norm$sample <- factor(data_norm$sample, levels = c("Fresh1", "Fresh2", "NFrozen1", "NFrozen2", "GFrozen1", "GFrozen2", "ControlALDH2KO", "RnoMitoControl"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+
+  tmp <- as.character(unique(data_norm$sample))
+  tmp <- tmp[c(6,2,4,7,3,5,1,8)]
+  test <- c("Fresh", "NFrozen", "GFrozen", "RnoMitoControl", "ControlALDH2KO")
+  plots <- list()
+  prettycolors <- c("OrRd", "OrRd", "Blues", "Blues", "Greens", "Greens", "Reds", "Greys")
+  titles <- c("")
+  captions <- c("")
+  
+for (i in 1:length(test)) {
+  plots[[i]] <- (data_norm[grep(pattern = test[i], data_norm$sample),]) %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm, color = DF, group = interaction(sample, DF),linetype = sample), linewidth = 1.25) +
+    ylim(0,0.15) +
+  theme_classic() +
+  scale_color_brewer(palette = prettycolors[i], direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle(as.character(test[i]))
+}
+
+cowplot <- cowplot::plot_grid(plotlist = plots, nrow = 2) # !!!!!!!!!!!!!! bro it worked
+
+
+
+ (data_norm[grep(pattern = "Fresh", data_norm$sample),]) %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm,  group = interaction(sample, DF),linetype = sample))
+
+
+ggsave(plot = cowplot, filename = here("LM027", "LM027-9_plot.png"), device = "png", height = 10, width = 15)
+
+```

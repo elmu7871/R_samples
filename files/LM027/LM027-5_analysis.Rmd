@@ -1,0 +1,62 @@
+---
+title: "LM027-5_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup}
+library(here)
+library(tidyverse)
+library(readr)
+library(purrr)
+library(ggpubr)
+```
+
+```{r read in and format data}
+data <- readr::read_csv(file = here("LM027", "LM027-5_OD450.csv"), locale=locale(encoding="latin1"))
+
+data <- data[,3:length(colnames(data))]
+
+samplenames <- c("buffer_DF1", "ALDH2_DF1", "ALDH2_DF2", "ALDH2_DF4", "ALDH2_DF8", "blank_NA")
+
+colnames(data) <- samplenames
+
+data_norm <- (data %>% purrr::keep(is.numeric) - data$blank_NA) %>% rownames_to_column(var = "Time")
+
+data_norm <- data_norm %>% dplyr::select(!grep(pattern = "blank", colnames(data_norm)))
+
+data_norm <- pivot_longer(data_norm, 
+                          cols = buffer_DF1:ALDH2_DF8, 
+                          names_to = "sample")
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("sample", "DF"))
+
+# data_norm$DF <- data_norm$DF %>%
+#   gsub(pattern = "DF", replacement = "") %>%
+#   as.numeric()
+```
+
+```{r stuff and things}
+tmp <- as.character(c(1:122))
+
+data_norm$Time <- factor(data_norm$Time, levels = tmp)
+data_norm$DF <- factor(data_norm$DF, levels = c("DF1", "DF2", "DF4", "DF8"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+data_norm <- data_norm %>%
+  dplyr::filter(sample != "buffer")
+
+pGoodplot <- data_norm %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm, color = DF, group = DF), linewidth = 1) +
+  theme_classic() +
+  geom_abline(intercept = 0, slope = 0, ) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle("LM027-5 ALDH2 activity assay: activity solution reaction with ALDH2 test") +
+  labs(caption = "Activity solution from two ALDH2 activity assay kits was combined with varying dilutions of purified ALDH2 to determine reagents' ability to react specifically with ALDH2.")
+
+ggsave(plot = pGoodplot, filename = here("LM027", "LM027-5_plot.png"), device = "png", height = 10, width = 10)
+
+```

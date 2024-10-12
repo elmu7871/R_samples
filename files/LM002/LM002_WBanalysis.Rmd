@@ -1,0 +1,199 @@
+---
+title: "LM002_WBanalysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+library(dplyr)
+library(here)
+library(tidyverse)
+library(reshape2)
+library(ggsignif)
+```
+
+```{r import CSVs}
+project <- "LM002"
+samplenames <- c("unstim1", "unstim2", "stim1", "stim2")
+
+
+names_GAPDH <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_GAPDH) <- c("Sample", "GAPDH")
+
+GAPDH <- rbind(
+  colnames(names_GAPDH),
+  data.frame(  
+  "Sample" = samplenames,
+  "GAPDH" = (read_csv(file = here::here(project, "WBQuants", "LM002_wbQuant_GAPDH.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+) 
+
+names_aSMA <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_aSMA) <- c("Sample", "aSMA")
+
+aSMA <- rbind(
+  colnames(names_aSMA),
+  data.frame(
+  "Sample" = samplenames,
+  "aSMA" = (read_csv(file = here::here(project, "WBQuants", "LM002_wbQuant_aSMA.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+)
+
+
+names_col1A1 <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_col1A1) <- c("Sample", "col1A1")
+
+
+col1A1 <- rbind(
+  colnames(names_col1A1),
+  data.frame(
+  "Sample" = samplenames,
+  "col1A1" = (read_csv(file = here::here(project, "WBQuants", "LM002_wbQuant_col1A1.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+) 
+
+
+stopifnot(
+  class(GAPDH) == "data.frame" &
+  class(aSMA) == "data.frame" &
+  class(col1A1) == "data.frame"
+)
+
+#readxl::read_excel(path = here(project, "WBQuants", "LM002_wbQuant_GAPDH.xls"), sheet = 1, skip = 1)
+```
+
+Plan:  
+1. build tidy dataframe containing all data
+2. divide aSMA coumn and col1A1 column by GAPDH column
+3. barplot of results normalized to HKG
+3. t test to see if there's significant changes in protein level
+
+```{r de-clownify dataframes and consolidate into tidy df}
+tmp <- left_join(
+  GAPDH, aSMA, by = "Sample"
+)
+tmp <- left_join(
+  tmp, col1A1, by = "Sample"
+)
+colnames(tmp) <- tmp[1,]
+WBQuant <- tmp[2:nrow(tmp),]
+rownames(WBQuant) <- WBQuant[,1]
+WBQuant <- WBQuant[,2:ncol(WBQuant)]
+
+```
+
+```{r normalize signal and remove remining clowns from the matrix}
+WBQuant$GAPDH <- as.numeric(WBQuant$GAPDH)
+WBQuant$aSMA <- as.numeric(WBQuant$aSMA)
+WBQuant$col1A1 <- as.numeric(WBQuant$col1A1)
+
+WBQuant <- WBQuant %>%
+  dplyr::mutate(
+    "aSMA" = aSMA / GAPDH,
+    "col1A1" = col1A1 / GAPDH,
+    .keep = "unused"
+  )
+
+WBQuant <- rownames_to_column(WBQuant)
+
+WBQuant_plot <- reshape2::melt(WBQuant)
+colnames(WBQuant_plot) <- c("Sample", "Gene", "SignalNorm")
+```
+
+```{r calculate significance}
+WBQuant_plot$Sample <-WBQuant_plot$Sample %>% 
+  gsub(
+    pattern = "unstim1|unstim2",
+    replacement = "unstim"
+  )
+
+WBQuant_plot$Sample <- WBQuant_plot$Sample %>%
+  gsub(
+    pattern = "stim1|stim2",
+    replacement = "stim"
+  )
+
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+
+data_summary(
+  data = WBQuant_plot,
+  varname = "tmp",
+  groupnames = c("Sample", "Gene","SignalNorm")
+)
+
+
+dplyr::left_join(WBQuant_plot, WBQuant_stats, by = "Sample")
+```
+
+```{r ggplot o'clock}
+# WBQuant_stats
+pQuant <- ggbarplot(WBQuant_plot, 
+            x = "Sample", 
+            y = "SignalNorm",
+            fill = "Gene",
+            position = position_dodge(0.8),
+            add = c("mean_se", "point")) +
+            ggtitle("LM002 WB signals normalized to HKG") +
+            facet_grid(cols = vars(Gene), scales = "free_y") +
+            theme(legend.position = "none") +
+            geom_signif(
+              comparisons = list(c("unstim", "stim")),
+              map_signif_level = TRUE,
+              test = t.test
+            )
+pQuant
+
+
+ggsave(
+  filename = "LM002_WBQuant.png", plot = pQuant, device = "png", path = here::here(project)
+)
+          
+```
+
+```{r statistical tests}
+stats <- list()
+
+stats$aSMA_stat$summary <- as.list(
+  summary(WBQuant$aSMA)
+)
+
+stats$aSMA_stat$Ttest <- t.test(WBQuant$aSMA)
+
+
+stats$col1A1_stat$summary <- as.list(
+  summary(WBQuant$col1A1)
+)
+
+stats$col1A1_stat$Ttest <- t.test(WBQuant$col1A1)
+
+```

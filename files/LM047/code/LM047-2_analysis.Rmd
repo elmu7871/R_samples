@@ -1,0 +1,62 @@
+---
+title: "LM047-2_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(conflicted)
+library(ggprism)
+library(ggpattern) # for making stripes on plot
+```
+
+```{r import data}
+
+data <- read_csv(file = here("LM047", "LM047-2_measurements.csv"),locale=locale(encoding="latin1"))[,c(1:6)]
+
+colnames(data)[1] <- "tmp"
+
+names <- c("WT_mock_rep1", "WT_mock_rep2", "WT_mock_rep3", "WT_mock_rep4", "WT_TGFb_rep1", "WT_TGFb_rep2", "WT_TGFb_rep3", "WT_TGFb_rep4", "ALDH2KO_mock_rep1", "ALDH2KO_mock_rep2", "ALDH2KO_mock_rep3", "ALDH2KO_mock_rep4", "ALDH2KO_TGFb_rep1", "ALDH2KO_TGFb_rep2", "ALDH2KO_TGFb_rep3", "ALDH2KO_TGFb_rep4")
+
+stopifnot(length(names) == nrow(data))
+
+data$tmp <- names
+
+data <- data%>%
+  separate(col = tmp, into = c("genotype", "stim", "rep"))
+
+data <- data %>%
+         mutate(areanorm_0h = area_0h / area_0h,
+          areanorm_24h = area_24h / area_0h, 
+          areanorm_48h = area_48h / area_0h,
+          areanorm_5d = area_5d / area_0h)
+
+data_plot <- data %>%
+  dplyr::select(!c(area_original, area_0h, area_24h, area_48h, area_5d)) %>%
+  pivot_longer(cols = !c("genotype", "stim", "rep"), names_to = "time", values_to = "value")
+
+data_plot$time <- data_plot$time %>%
+  gsub(pattern = "areanorm_", replacement = "")
+
+data_plot <- data_plot %>%
+  dplyr::filter(!is.na(value)) %>%
+  group_by(genotype, stim, time) %>%
+  summarise_at(vars(value), funs(mean(., na.rm = TRUE))) # superseded but still works well enough for me!
+
+data_plot$genotype <- factor(data_plot$genotype, levels = c("WT", "ALDH2KO"))
+
+```
+
+```{r plot data}
+pContraction <- ggplot(data_plot) +
+  geom_line(aes(x = time, y = value, group = interaction(stim, genotype), color = stim, linetype = genotype), linewidth = 1.5) +
+  theme_prism() +
+  ggtitle("LM047-2 collagen gel contraction") +
+  ylim(0,1.15) +
+  scale_color_manual(values = c("grey50", "grey25"))
+
+ggsave(plot = pContraction, filename = here("LM047", "LM047-2_contractionplot.png"), device = "png", bg = "white")  
+```

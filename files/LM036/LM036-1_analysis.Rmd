@@ -1,0 +1,157 @@
+---
+title: "LM036-1_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup, echo = FALSE,results = FALSE, message = FALSE}
+library(here)
+library(tidyverse)
+library(conflicted)
+library(readr)
+library(purrr)
+library(ggpubr)
+library(viridis)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+```{r read in and format data, results = FALSE, message = FALSE, warning=FALSE}
+data <- readr::read_csv(file = here("LM036", "LM036-1_OD450.csv"), locale=locale(encoding="latin1"))#[,c(2:32)]
+
+times <- as.character(c(1:121))
+data$Time <- times
+
+samplenames <- c("RnoMitoControl_DF1", "Hu457_DF2", "Hu506_DF1", "Hu510_DF4", 
+                 "Hu445_DF1", "Hu457_DF4", "Hu506_DF2", "Hu513_DF1", 
+                 "Hu445_DF2", "Hu459_DF1", "Hu506_DF4", "Hu513_DF2",
+                 "Hu445_DF4", "Hu459_DF2", "Hu508_DF1", "Hu513_DF4",
+                 "Hu454_DF1", "Hu459_DF4", "Hu508_DF2", "Hu520_DF1",
+                 "Hu454_DF2", "Hu479_DF1", "Hu508_DF4", "Hu520_DF2",
+                 "Hu454_DF4", "Hu479_DF2", "Hu510_DF1", "Hu520_DF4",
+                 "Hu457_DF1", "Hu479_DF4", "Hu510_DF2")
+                 
+
+stopifnot(length(colnames(data)) == length(samplenames) + 1)
+
+colnames(data)[c(2:length(colnames(data)))] <- samplenames
+
+data_norm <- pivot_longer(data, 
+                          cols = RnoMitoControl_DF1:Hu510_DF2, 
+                          names_to = "sample")
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("sample", "DF"))
+
+disease <- tibble(sample = unique(data_norm$sample)[2:11],
+                      disease = c("ARDS", "normal", "ARDS", "normal", "normal", "normal", "normal", "ARDS", "ARDS", "normal"))
+
+data_norm <- left_join(data_norm, disease, by = "sample")
+```
+
+```{r plot OD v time, message = FALSE, results = FALSE, fig.dim = c(4,4), echo = FALSE, warning=FALSE}
+data_norm$Time <- factor(data_norm$Time, levels = times)
+data_norm$DF <- factor(data_norm$DF, levels = c("DF1", "DF2", "DF4"))
+data_norm$sample <- factor(data_norm$sample, levels = c("Hu445", "Hu459", "Hu479", "Hu506", "Hu508", "Hu513", "Hu454", "Hu457", "Hu510", "Hu520", "RnoMitoControl"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+
+
+  tmp <- as.character(unique(data_norm$sample))
+  tmp <- tmp[c(5,9,2,7,11,3,8,4,6,10,1)]
+  plots <- list()
+  prettycolors <- c("Blues", "Blues", "Blues", "Blues", "Blues", "Blues", "OrRd", "OrRd", "OrRd", "OrRd", "PRGn")
+  
+for (i in 1:length(tmp)) {
+  plots[[i]] <- (data_norm[grep(pattern = tmp[i], data_norm$sample),]) %>%
+  ggplot() +
+  geom_line(aes(x=Time, y=OD450_norm, color = DF, group = interaction(sample, DF),linetype = sample), linewidth = 1.25) +
+    ylim(0,0.195) +
+  theme_classic() +
+  scale_color_brewer(palette = prettycolors[i], direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle(as.character(tmp[i]))
+}
+
+cowplot <- cowplot::plot_grid(plotlist = plots, nrow = 2)
+
+plots
+
+# ggsave(plot = cowplot, filename = here("LM036", "LM036-1_plot.png"), device = "png", height = 10, width = 20, bg = "white")
+
+```
+
+organizing thoughts for next analysis...
+goal is to generate a plot where dilution is on the x axis and "activity" is on the y axis. i suppose this means OD at min120-OD at min30 divided by 90?
+
+```{r calculate activity, warning=FALSE}
+data_activity <- data_norm[grepl(pattern = 100, data_norm$Time),c(2,3,5)]
+
+data_activity$OD30 <- data_norm[grepl(pattern = 30, data_norm$Time),]$OD450_norm
+data_activity$OD120 <- data_norm[grepl(pattern = 120, data_norm$Time),]$OD450_norm
+data_activity$activity <- (data_activity$OD120 - data_activity$OD30) / 90
+
+data_activity$DF <- factor(data_activity$DF, levels = c("DF1", "DF2", "DF4"))
+data_activity$disease <- factor(data_activity$disease, levels = c("normal", "ARDS"))
+
+write_csv(data_activity, file = here("LM036", "LM036-1_data_activity.csv"))
+```
+
+Eventually I'll include a chunk here calculating a regression model for each sample's points. I need to determine the best model to use for that. For this particular data, because they're all over the place and the dose responses do not appear to be following any consistent pattern, I won't calculate regression at all.
+```{r calculate regression, message = FALSE, results = FALSE, echo = FALSE, warning=FALSE}
+```
+
+```{r plot activity, warning=FALSE}
+pActivitycurves <- data_activity[!is.na(data_activity$disease),] %>% 
+  ggplot(aes(x = DF, y = activity, color = sample, group = sample)) +
+#  geom_point() +
+  geom_line(aes(group = sample, linetype = disease), linewidth = 1.5) +
+  theme_classic() +
+#  scale_color_brewer(palette = "OrRd", direction = -1) +
+#  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle("LM036-1 activity curves")
+
+pActivitycurves
+# ggsave(plot = pActivitycurves, filename = here("LM036", "LM036-1_activityPlot.png"), device = "png")
+
+
+pBoxplots <- data_activity[!is.na(data_activity$disease),] %>% dplyr::filter(DF == "DF1") %>%
+  ggplot(aes(x = disease, y = activity, fill = disease)) +
+  geom_boxplot() +
+  theme_classic() +
+  scale_fill_brewer(palette = "Pastel1") +
+  ggtitle("LM036-1 ALDH2 activity")
+
+pBoxplots
+
+# ggsave(plot = pBoxplots, filename = here("LM036", "LM036-1_activityBoxplots.png"), device = "png")
+```
+
+```{r prism plotting}
+dataset <- data_activity[!is.na(data_activity$disease),] %>% dplyr::filter(DF == "DF1")
+
+pBoxplots_prism <- dataset %>%
+  ggplot(aes(x = disease, y = activity), color = "black") +
+  geom_boxplot(aes(fill = disease)) +
+  geom_jitter(size = 3.2, width = 0.08) +
+  theme_prism() +
+  ylab("normalized ALDH2 activity (AU)") +
+  scale_fill_manual(values = c("gray30", "gray75"))
+
+alt_p_val <- rstatix::t_test(dataset, activity ~ disease, ref.group = "normal") %>%
+  rstatix::add_xy_position()
+
+pBoxplots_prism_pval <- pBoxplots_prism +
+  add_pvalue(alt_p_val, y.position = 0.00125)
+
+ggsave(plot = pBoxplots_prism, filename = here("LM036", "LM036-1_activityBoxplots_prism.png"), height = 8, width = 8, device = "png")
+
+ggsave(plot = pBoxplots_prism_pval, filename = here("LM036", "LM036-1_activityBoxplots_prism_pval.png"), height = 8, width = 8, device = "png")
+
+```
+
+```{r stats}
+sd(data_activity[!is.na(data_activity$disease),] %>% dplyr::filter(disease == "ARDS") %>% dplyr::select(activity) %>% as.matrix() * 90)
+sd(data_activity[!is.na(data_activity$disease),] %>% dplyr::filter(disease == "normal") %>% dplyr::select(activity) %>% as.matrix() * 90)
+```

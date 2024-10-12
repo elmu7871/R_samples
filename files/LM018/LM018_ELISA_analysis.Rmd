@@ -1,0 +1,264 @@
+---
+title: "LM037-1_ab287803_ELISA_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## setup
+```{r setup, include=FALSE }
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+library(drc)
+library(tidyverse) 
+library(ggthemes) 
+library(gridExtra)
+library(splitstackshape)
+library(cowplot)
+library(ggpubr)
+library(here)
+library(dplyr) 
+```
+
+```{r read in files and join, echo=FALSE}
+#read in ELISA OD file and fix column names
+ELISA <- read_csv(here("LM037", "LM037-1_ELISA_ab287803.csv")) [,c(2,4,5)]
+colnames(ELISA) <- c("sample", "conc", "OD_450")
+
+dplyr::filter(ELISA, OD_450 < 0)
+
+ELISA <- ELISA %>%
+  dplyr::filter(OD_450 > 0)
+```
+
+
+## ELISA model fit
+```{r model fit, include=FALSE, , echo=FALSE}
+#create object of just standards
+stdcrvdata <- ELISA %>% dplyr::filter(grepl("std", sample)) 
+
+stdcrvdata <- stdcrvdata %>% rename(measured = OD450) %>%
+  rename(expected = conc)
+
+#remove std8 (blank std) because i'm about to take -log10 of all expected and -log10 of 0 is -inf, which is unplottable
+stdcrvdata <- stdcrvdata %>% 
+  filter(expected > 0)
+
+#create a column in stdcrvdata with log10 known conc
+stdcrvdata$logconc <-log10(stdcrvdata$expected)
+
+# model the standard curve using generated points.  plot those points in red.
+fit <- drm(formula =   measured ~ logconc , data = stdcrvdata, fct = LL.4()) # banana changed logconc to expected
+summary(fit)
+
+# This is a description of the variables and terms defined in the 'fit' model.
+# x = the independent variable (Absorbance) (Concentration, estimated from the Absorbance)
+# y = the dependent variable 
+# The 4 estimated parameters consist of the following:
+
+# the minimum value that can be obtained. (this is the ABS at conc. 0)
+# a = fit$coefficients[2] 
+
+# d = the maximum value that can be obtained (i.e. what happens at infinite dose)
+
+# c = the point of inflection (i.e. the point on the S shaped curve halfway between a and d)
+
+# b = Hill’s slope of the curve (i.e. this is related to the steepness of the curve at point c).
+
+# Generate points from  model. Pick range from logconc
+x <- seq(from = 0, to = 4, length=1000) # banana changed 4 to 2000
+
+# from OD ~ d + (a - d)/(1 + (logconc/cc)^b)
+y <- (fit$coefficients[2]+ (fit$coefficients[3]- fit$coefficients[2])/(1+(x/fit$coefficients[4])^ fit$coefficients[1])) 
+```
+
+## Calculate HNE concentration from model
+```{r calculate HNE conc, message=FALSE, warning=FALSE, echo=FALSE}
+#create object with only measurements from experimental wells
+OD <- ELISA %>% 
+  filter(Sample != "empty") %>%
+  filter(!grepl("std|nsb|NA", Sample))
+
+nsb <- ELISA %>%
+  filter(Experiment == "nsb")
+
+# subtract nsb from experimental wells
+OD$OD_450 <- OD$OD_450 - nsb$OD_450
+
+# here we are applying the equation described above to...
+OD$loganswer<- fit$coefficients[4]*( # banana changed loganswer to answer
+  (
+    (-1* fit$coefficients[3]+ OD$OD_450)/
+      (fit$coefficients[2]-OD$OD_450))^(1/ fit$coefficients[1])
+  )
+
+ OD$conc <- 10^OD$loganswer # banana commented out un-log transform bc answer is already natural
+# OD$conc <- OD$answer # banana commented this out bc i think it's from the un-log process
+
+OD$below <- OD$conc < min(stdcrvdata$expected)
+OD$above <- OD$conc > max(stdcrvdata$expected)
+
+
+plot(x = stdcrvdata$logconc, y = stdcrvdata$measured, main="log standard curve", # banana changed logconc to expected
+  xlim = c(min(x),max(x)),
+  ylim = c(min(y),max(y))
+     )
+lines(x,y, lty="dotted", col="red")
+lines(OD$loganswer, OD$OD_450, type="points", col="blue") # banana changed OD$loganswer to OD$answer
+
+# adjust concs for df
+OD$DF <- as.numeric(OD$DF)
+OD$conc <- OD$conc * OD$DF
+
+
+
+
+```
+
+## Plots  
+```{r building a standardized battery of plots for ELISAs, echo=FALSE}
+# Question 2: how does dox induction change aldo levels?
+## plot 1: aldo concentration in dox vs noDox cells. Aldo conc on y axis, noDox/plusDox on x axis, facet by stim/unstim, all cells. y axis is free
+
+YA <- (OD[!is.na(OD$conc),] %>% 
+         filter(Experiment == "YA"))
+
+YA$Sample <- YA$Sample %>%
+  gsub(
+    pattern = "supe1",
+    replacement = "media only sup"
+  ) %>%
+  gsub(
+    pattern = "supe2",
+    replacement = "DMSO tx sup"
+  ) %>%
+  gsub(
+    pattern = "supe3",
+    replacement = "Alda-1 20uM sup"
+  ) %>%
+  gsub(
+    pattern = "supe4",
+    replacement = "Alda-1 40uM sup"
+  ) %>%
+  gsub(
+    pattern = "spl1",
+    replacement = "media only"
+  ) %>%
+  gsub(
+    pattern = "spl2",
+    replacement = "DMSO tx"
+  ) %>%
+  gsub(
+    pattern = "spl3",
+    replacement = "Alda-1 20uM"
+  ) %>%
+  gsub(
+    pattern = "spl4",
+    replacement = "Alda-1 40uM"
+  )
+
+YA$Sample <- YA$Sample %>%
+  factor(levels = c("media only", "DMSO tx", "Alda-1 20uM", "Alda-1 40uM", "media only sup", "DMSO tx sup", "Alda-1 20uM sup", "Alda-1 40uM sup"))
+  
+HuLu <- (OD[!is.na(OD$conc),] %>% 
+         filter(Experiment == "HuLu"))
+
+HuLu$Sample <- HuLu$Sample %>%
+  gsub(
+    pattern = "Hu479",
+    replacement = "Hu 479 ARDS"
+  ) %>%
+  gsub(
+    pattern = "Hu484",
+    replacement = "Hu 484 ARDS"
+  ) %>%
+  gsub(
+    pattern = "Hu506",
+    replacement = "Hu 506 normal"
+  ) %>%
+  gsub(
+    pattern = "Hu508",
+    replacement = "Hu 508 normal"
+  ) 
+
+HuLu$Sample <- HuLu$Sample %>%
+  factor(levels = c(unique(HuLu$Sample)[c(1,2,3,4)]))
+
+IMR90 <- (OD[!is.na(OD$conc),] %>% 
+         filter(Experiment == "IMR90"))
+
+IMR90$Sample <- IMR90$Sample %>%
+  gsub(
+    pattern = "hour0",
+    replacement = "0h TGFb"
+  ) %>%
+  gsub(
+    pattern = "hour24",
+    replacement = "24h TGFb"
+  )
+
+IMR90$Sample <- IMR90$Sample %>%
+  factor(levels = c(unique(IMR90$Sample)[c(1,2)]))
+         
+
+pYA <- ggbarplot(YA, x = "Sample", y = "conc",
+          fill = "Sample",
+          xlab = FALSE,
+          add = c("mean_se", "point"),
+          position = position_dodge(0.8)) +
+          theme(legend.position = "none") +
+          theme(axis.text.x = element_text(angle = 60, hjust=1)) +
+          ggtitle("YA 1.39")
+
+pHuLu <- ggbarplot(HuLu, x = "Sample", y = "conc",
+          fill = "Sample",
+          xlab = FALSE,
+          add = c("mean_se", "point"),
+          position = position_dodge(0.8)) +
+          theme(legend.position = "none") +
+          theme(axis.text.x = element_text(angle = 60, hjust=1)) +
+          ggtitle("Human lung lysates")
+
+pIMR90 <- ggbarplot(IMR90, x = "Sample", y = "conc",
+          fill = "Sample",
+          xlab = FALSE,
+          add = c("mean_se", "point"),
+          position = position_dodge(0.8)) +
+          theme(legend.position = "none") +
+          theme(axis.text.x = element_text(angle = 60, hjust=1)) +
+          ggtitle("IMR90 cell lysates")
+
+
+
+title <- ggdraw() + 
+  draw_label(
+    "4-HNE ELISA 20230815",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+
+plots <- cowplot::plot_grid(pYA, pHuLu, pIMR90, nrow = 1, align = "h")
+
+f <- cowplot::plot_grid(
+  title, plots,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+
+f
+
+ggsave(
+  plot = f,
+  filename = "20230815_HNE_ELISA_plots.png",
+  path = here::here("LM018", "20230815_HNE_ELISA_plots.png"),
+  device = "png",
+  width = 8
+)
+```

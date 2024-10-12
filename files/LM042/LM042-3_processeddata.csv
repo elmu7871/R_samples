@@ -1,0 +1,9 @@
+sample,number_cells,channel,raw,norm_value
+TGFb_carrier,44,actin_norm,55963260,1271892.273
+TGFb_carrier,44,HNE_norm,61543736,1398721.273
+TGFb,55,actin_norm,102402545,1861864.455
+TGFb,55,HNE_norm,86045062,1564455.673
+bleo_carrier,56,actin_norm,43698166,780324.3929
+bleo_carrier,56,HNE_norm,62718200,1119967.857
+bleo,16,actin_norm,41445410,2590338.125
+bleo,16,HNE_norm,60029592,3751849.5

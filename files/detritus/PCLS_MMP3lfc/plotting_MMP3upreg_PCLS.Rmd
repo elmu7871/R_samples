@@ -1,0 +1,61 @@
+---
+title: "plotting MMP3 upregulation in FC"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, echo = FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(here)
+library(cowplot)
+```
+
+```{r import data}
+human <- data.frame(
+  "samples" = c("CC rep1", "CC rep2", "FC rep1", "FC rep2"),
+  "lfc_MMP3" = c(0.5764, 0.4443, 110.4925, 59.1590)
+)
+
+mouse <- data.frame(
+  "samples" = c("CC", "FC complete", "FC no TNFa"),
+  "lfc_MMP3" = c(64.5741, 83.1729, 7.2578)
+)
+
+write_csv(human, file = here("detritus", "PCLS_MMP3lfc", "PCLS4_MMP3lfc.csv"))
+write_csv(mouse, file = here("detritus", "PCLS_MMP3lfc", "PCLS7_MMP3lfc.csv"))
+```
+
+```{r plot}
+plots <-list()
+plots[[1]] <- human %>%
+  ggplot(aes(x = samples, y = lfc_MMP3), position = position_dodge(0.7), width = 0.6) +
+  geom_col() +
+  theme_classic() +
+  xlab("Sample") +
+  ylab("Log2 fold change MMP3 v PPIA") +
+    theme(axis.text.x = element_text(angle=45, vjust=.5, hjust=0.5)) +
+  ggtitle("Human PCLS4 lfc MMP3") 
+
+plots[[2]] <- mouse %>%
+  ggplot(aes(x = samples, y = lfc_MMP3), position = position_dodge(0.7), width = 0.6) +
+  geom_col() +
+  theme_classic() +
+  xlab("Sample") +
+  ylab("Log2 fold change MMP3 v PPIA") +
+    theme(axis.text.x = element_text(angle=45, vjust=.5, hjust=0.5)) +
+  ggtitle("Mouse PCLS7 lfc MMP3") 
+
+pBothplots <- cowplot::plot_grid(plotlist = plots, nrow = 1)
+plots[[1]]
+plots[[2]]
+pBothplots
+
+ggsave(filename = "human_MMP3lfc_FCvCC.png", plot = plots[[1]], device = "png", width = 3.5, height = 4.5, path = here::here("detritus","PCLS_MMP3lfc"))
+ggsave(filename = "mouse_MMP3lfc_FCvCC.png", plot = plots[[2]], device = "png", width = 3.5, height = 4.5, path = here::here("detritus", "PCLS_MMP3lfc"))
+ggsave(filename = "humanandmouse_MMP3lfc_FCvCC.png", plot = pBothplots, device = "png", width = 7, height = 4.5, path = here::here("detritus", "PCLS_MMP3lfc"))
+
+```

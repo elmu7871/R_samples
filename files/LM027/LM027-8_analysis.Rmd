@@ -1,0 +1,123 @@
+---
+title: "LM027-8_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup}
+library(here)
+library(tidyverse)
+library(readr)
+library(purrr)
+library(ggpubr)
+library(viridis)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+```{r read in and format data}
+data <- readr::read_csv(file = here("LM027", "LM027-8_OD450.csv"), locale=locale(encoding="latin1"))[3:10]
+
+samplenames <- c("HsaLung_DF1", "HsaLung_DF2", "MmuLungWT_DF1", "MmuLungWT_DF2", "RnoMito_max", "RnoMito_mid", "MmuLungALDH2KO_DF1", "blank_NA")
+
+stopifnot(length(colnames(data)) == length(samplenames))
+
+colnames(data) <- samplenames # banana
+
+data_norm <- (data %>% purrr::keep(is.numeric) - data$blank_NA) %>% rownames_to_column(var = "Time")
+
+data_norm <- data_norm %>% dplyr::select(!grep(pattern = "blank", colnames(data_norm)))
+
+data_norm <- pivot_longer(data_norm, 
+                          cols = HsaLung_DF1:MmuLungALDH2KO_DF1, 
+                          names_to = "sample")
+data_norm <- data_norm %>% 
+  separate(col = sample,
+           into = c("sample", "DF"))
+```
+
+```{r stuff and things}
+tmp <- as.character(c(1:122))
+
+data_norm$Time <- factor(data_norm$Time, levels = tmp)
+data_norm$DF <- factor(data_norm$DF, levels = c("max", "mid", "min", "DF1", "DF2", "DF4", "DF8"))
+data_norm$sample <- factor(data_norm$sample, levels = c("MmuLungWT", "MmuLungALDH2KO", "A549mito", "HsaLung", "RnoMito"))
+
+colnames(data_norm)[4] <- "OD450_norm"
+
+# data_norm <- data_norm %>%
+#   dplyr::filter(sample != "buffer")
+
+
+
+#############
+
+test1 <- (data_norm[grep(pattern = "HsaLung", data_norm$sample),]) %>%
+  ggplot() +
+#  ylim(0,0.23) +
+  geom_line(aes(x=Time, y=OD450_norm, color = DF, group = DF), linewidth = 1.25) +
+  theme_classic() +
+  scale_color_brewer(palette = "Blues", direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title = element_text(size = 25), axis.text.y = element_text(size = 20)) +
+  ggtitle("LM027-8 ALDH2 activity assay: human lung lysate") +
+  labs(caption = "ALDH2 activity assay was performed with samples of human lung lysate.")
+
+test2 <- (data_norm[grep(pattern = "MmuLung", data_norm$sample),] %>% dplyr::filter(DF == "DF1")) %>%
+  ggplot() +
+#  ylim(0,0.23) +
+  geom_line(aes(x=Time, y=OD450_norm, color = sample, group = interaction(DF, sample)), linewidth = 1.25) +
+#  labs(x = "x axis title", y = "y axis title") +
+  theme_classic() +
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title = element_text(size = 25), axis.text.y = element_text(size = 20)) +
+  ggtitle("LM027-8 ALDH2 activity assay: mouse lung lysate") +
+  labs(caption = "ALDH2 activity assay was performed with samples of WT and ALDH2-/- C57Bl/6 mouse lung lysate.")
+
+mod_plots <- cowplot::plot_grid(test1, test2, nrow = 1)
+ggsave(plot = mod_plots, filename = here("LM027", "LM027-8_modified_plot.png"), device = "png", height = 8, width = 14)
+ggsave()
+ggsave()
+
+#############
+
+
+pRatmito <- (data_norm[grep(pattern = "RnoMito", data_norm$sample),]) %>%
+  ggplot() +
+ # ylim(0,0.23) +
+  geom_line(aes(x=Time, y=OD450_norm, color = DF, group = DF), linewidth = 1.25) +
+  theme_classic() +
+  scale_color_brewer(palette = "Blues", direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle("LM027-8 ALDH2 activity assay: rat mitocondrial extract") +
+  labs(caption = "ALDH2 activity assay was performed with samples of rat mitochondrial extract.")
+
+pHuLung <- (data_norm[grep(pattern = "HsaLung", data_norm$sample),]) %>%
+  ggplot() +
+#  ylim(0,0.23) +
+  geom_line(aes(x=Time, y=OD450_norm, color = DF, group = DF), linewidth = 1.25) +
+  theme_classic() +
+  scale_color_brewer(palette = "OrRd", direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle("LM027-8 ALDH2 activity assay: human lung lysate") +
+  labs(caption = "ALDH2 activity assay was performed with samples of human lung lysate.")
+
+pMsLung <- (data_norm[grep(pattern = "MmuLung", data_norm$sample),]) %>%
+  ggplot() +
+#  ylim(0,0.23) +
+  geom_line(aes(x=Time, y=OD450_norm, linetype = sample, color = DF, group = interaction(DF, sample)), linewidth = 1.25) +
+  theme_classic() +
+  scale_color_brewer(palette = "OrRd", direction = -1) +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  ggtitle("LM027-8 ALDH2 activity assay: mouse lung lysate") +
+  labs(caption = "ALDH2 activity assay was performed with samples of WT and ALDH2-/- C57Bl/6 mouse lung lysate.")
+
+
+plots <- c(pRatmito, pHuLung, pMsLung)
+
+cowplot <- cowplot::plot_grid(pRatmito, pHuLung, pMsLung, nrow = 1)
+
+cowplot
+
+ggsave(plot = cowplot, filename = here("LM027", "LM027-8_plot.png"), device = "png", height = 8, width = 20)
+
+```

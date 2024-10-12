@@ -1,0 +1,171 @@
+---
+title: "LM042-3_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(ggprism)
+library(conflicted)
+conflicts_prefer(dplyr::filter)
+```
+
+```{r import data}
+data <- read_csv(here("LM042", "LM042-3_tidydata.csv"))[,c(1:3)]
+```
+
+```{r shape data and normalize}
+data <- data %>% pivot_wider(names_from = channel, values_from = signal)
+
+colnames(data)[2] <- "actin"
+
+data <- t(data) %>% as.data.frame()
+colnames(data) <- data[1,]
+data <- data[c(2:4),] %>%
+  mutate_all(as.numeric)
+
+data <- data %>% 
+  mutate(background = secondaryOnly + isotype) %>%
+  mutate(TGFb_mock = TGFb_mock - background,
+                        TGFb = TGFb - background,
+                        bleo_mock = bleo_mock - background,
+                        bleo = bleo - background) %>%
+  select(!background)
+
+data <- t(data) %>% as.data.frame() %>%
+  mutate_all(as.numeric)
+
+data <- data %>% rownames_to_column(var = "sample")
+
+data <- data %>% mutate(actin_norm = actin / nucleus,
+                HNE_norm = HNE / nucleus,
+                nucleus_norm = nucleus / nucleus)
+
+data_plot <- data[c(3:6),] %>%
+  pivot_longer(cols = c(actin_norm:nucleus_norm), 
+                              names_to = "channel", 
+                              values_to = "value") %>%
+  select(!c(actin:nucleus))
+
+
+
+data_plot$sample <- factor(data_plot$sample, levels = c("TGFb_mock", "TGFb", "bleo_mock", "bleo"))
+```
+
+```{r plot data}
+ggplot(data_plot %>% filter(channel != "nucleus_norm")) +
+  geom_col(aes(x = sample, y = value, fill = sample), position = position_dodge()) +
+  theme_prism() +
+  facet_grid(~ channel) +
+  geom_abline(slope = 0, intercept = 0) +
+  scale_fill_manual(values = c("chartreuse4", "chartreuse3", "royalblue4", "royalblue3")) +
+ # theme(axis.text.x = element_text(angle = 90, hjust = 0.5)) +
+  ggtitle("LM042-3")
+```
+
+That didn't work because the nuclear stain sucked. trying a z-stacked IF image instead. tbh these images also suck because i set the stacks too far apart but honestly whatever, we'll just take a stab at it and see what happens. i can always re-image
+```{r validate different quant method and quant bleo}
+bleocarrier_nucleus <- read_csv(here("LM042", "stack quant test", "bleocarrier_nucleus.csv"))[,c(4:5)]
+colnames(bleocarrier_nucleus)[1] <- "nucleus"
+bleocarrier_hne <- read_csv(here("LM042", "stack quant test", "bleocarrier_hne.csv"))[,c(4:5)]
+colnames(bleocarrier_hne)[1] <- "hne"
+bleocarrier_actin <- read_csv(here("LM042", "stack quant test", "bleocarrier_actin.csv"))[,c(4:5)]
+colnames(bleocarrier_actin)[1] <- "actin"
+
+bleocarrier_signal <- left_join(bleocarrier_nucleus, left_join(bleocarrier_hne, bleocarrier_actin, by = "Slice"), by = "Slice")[,c(2,1,3,4)]
+
+bleoCarrier_final <- bleocarrier_signal %>% pivot_longer(cols = !Slice, names_to = "channel", values_to = "value")
+
+ggplot(bleoCarrier_final) +
+  geom_col(aes(x = Slice, y = value, fill = channel), position = position_dodge())
+
+# strategy looks good preliminarily. next step is to quantify an untx and tx pair and calculate the tx as fraction of untx. will there be a difference?
+
+bleo_nucleus <- read_csv(here("LM042", "stack quant test", "bleo_nucleus.csv"))[,c(4:5)]
+colnames(bleo_nucleus)[1] <- "nucleus"
+bleo_hne <- read_csv(here("LM042", "stack quant test", "bleo_hne.csv"))[,c(4:5)]
+colnames(bleo_hne)[1] <- "hne"
+bleo_actin <- read_csv(here("LM042", "stack quant test", "bleo_actin.csv"))[,c(4:5)]
+colnames(bleo_actin)[1] <- "actin"
+
+bleo_signal <- left_join(bleo_nucleus, left_join(bleo_hne, bleo_actin, by = "Slice"), by = "Slice")[,c(2,1,3,4)]
+
+bleo_final <- bleo_signal %>% pivot_longer(cols = !Slice, names_to = "channel", values_to = "value")
+
+ggplot(bleo_final) +
+  geom_col(aes(x = Slice, y = value, fill = channel), position = position_dodge())
+
+bleocomparison <- data.frame(
+  sample = c("bleo_carrier", "bleo"),
+  number_cells = c(56, 16),
+  actin = c(sum(bleocarrier_signal$actin), sum(bleo_signal$actin)),
+  HNE = c(sum(bleocarrier_signal$hne), sum(bleo_signal$hne))
+)
+
+bleocomparison_plot <- bleocomparison %>%
+  mutate(actin_norm = actin / number_cells) %>%
+  mutate(HNE_norm = HNE / number_cells) %>%
+#  select(,!c(3:4)) %>%
+  pivot_longer(cols = actin_norm:HNE_norm, names_to = "channel", values_to = "value")
+
+bleocomparison_plot$sample <- bleocomparison_plot$sample %>% factor(levels = c("bleo_carrier", "bleo"))
+
+bleoplot <- ggplot(bleocomparison_plot) +
+  geom_col(aes(x = channel, y = value, fill = sample), color = "black", position = position_dodge()) +
+  ggtitle("A549 +/- bleomycin") +
+  theme_prism() +
+  scale_fill_manual(values = c("grey25", "grey75")) 
+
+```
+
+```{r quantify tgfb}
+TGFbcarrier_hne <- read_csv(here("LM042", "stack quant test", "TGFbcarrier_HNE.csv"))[,c(3:4)]
+colnames(TGFbcarrier_hne)[1] <- "hne"
+TGFbcarrier_actin <- read_csv(here("LM042", "stack quant test", "TGFbcarrier_actin.csv"))[,c(3:4)]
+colnames(TGFbcarrier_actin)[1] <- "actin"
+
+TGFbcarrier_signal <- left_join(TGFbcarrier_hne, TGFbcarrier_actin, by = "Slice")[,c(2,1,3)]
+TGFbcarrier_final <- TGFbcarrier_signal %>% pivot_longer(cols = !Slice, names_to = "channel", values_to = "value")
+
+TGFb_hne <- read_csv(here("LM042", "stack quant test", "TGFb_HNE.csv"))[,c(3:4)]
+colnames(TGFb_hne)[1] <- "hne"
+TGFb_actin <- read_csv(here("LM042", "stack quant test", "TGFb_actin.csv"))[,c(3:4)]
+colnames(TGFb_actin)[1] <- "actin"
+
+TGFb_signal <- left_join(TGFb_hne, TGFb_actin, by = "Slice")[,c(2,1,3)]
+TGFb_final <- TGFb_signal %>% pivot_longer(cols = !Slice, names_to = "channel", values_to = "value")
+
+TGFbcomparison <- data.frame(
+  sample = c("TGFb_carrier", "TGFb"),
+  number_cells = c(44, 55),
+  actin = c(sum(TGFbcarrier_signal$actin), sum(TGFb_signal$actin)),
+  HNE = c(sum(TGFbcarrier_signal$hne), sum(TGFb_signal$hne))
+)
+
+TGFbcomparison_plot <- TGFbcomparison %>%
+  mutate(actin_norm = actin / number_cells) %>%
+  mutate(HNE_norm = HNE / number_cells) %>%
+ # select(,!c(3:4)) %>%
+  pivot_longer(cols = actin_norm:HNE_norm, names_to = "channel", values_to = "value")
+
+TGFbcomparison_plot$sample <- TGFbcomparison_plot$sample %>% factor(levels = c("TGFb_carrier", "TGFb"))
+
+tgfbplot <- ggplot(TGFbcomparison_plot) +
+  geom_col(aes(x = channel, y = value, fill = sample), color = "black", position = position_dodge()) +
+  ggtitle("A549 +/- TGFb") +
+  theme_prism() +
+  scale_fill_manual(values = c("grey25", "grey75")) 
+```
+
+```{r plots}
+plots <- cowplot::plot_grid(bleoplot, tgfbplot)
+
+ggsave(plots, file = here("LM042", "LM042-3_quant.png"), device = "png", width = 11)
+
+alldata <- rbind(TGFbcomparison_plot, bleocomparison_plot)
+write_csv(alldata, file = here("LM042", "LM042-3_processeddata.csv"))
+```

@@ -1,0 +1,116 @@
+---
+title: "i think i need to take z stacks for quantification"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+and here's why.  
+
+```{r setup, include=FALSE}
+library(here)
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(conflicted)
+library(readr)
+library(ggprism)
+```
+
+## chapter 1: non-reproducible data
+
+I ran the same experiment twice and got very different results.  
+
+Human small airway epithelial cells were treated with LPA, fibrotic cocktail, TGFB, and vehicle. Cells were incubated with stimulus for 24h and fixed. Samples were stained for actin (green) and HNE (red) with DAPI.
+
+#### LM046-1: starting line
+
+I got a result which showed that that LPA stimulation increases HNE production.  
+![](/Users/libbymurphy/Documents/Documents - Libby’s MacBook Air/GitHub/turbosquirrel/GD lab stuff/LM046/LM046-1_plot.png){width=500px}
+
+![](C:/Users/Murphyea/Documents/GitHub/R_samples/RMarkdown/LM046/accessories){width=500px}
+
+Unfortunately, I forgot to include a vehicle-only control. I redid the experiment in LM046-2 with the expectation of seeing the same relative intensities between stimulation conditions and establishing where the baseline is relative to those intensities.  
+
+#### LM046-2: unexpected result
+
+This time, while LPA still appeared to modestly increase HNE production, it seemed that FC caused a sharp decrease in HNE production which was not previously observed.  
+![](/Users/libbymurphy/Documents/Documents - Libby’s MacBook Air/GitHub/turbosquirrel/GD lab stuff/LM046/LM046-2_plot.png){width=500px}
+
+It is possible that this is due to some kind of biological variability. However, I believe that there might be a different explanation.  
+
+## chapter 2: biased signal intensity
+
+I was noticing while acquiring images that I could severely bias the apparent signal intensity by adjusting whether the focal plane was centered in the apical or basal region of the cell. I do not have any standardized way of positioning the focal plane--my strategy so far has been just to find the basal surface of the cell, then move in the apical direction just until I see what looks subjectively like "good" signal, while remaining as close to the basal surface as I can be.   
+
+I believe that this is insufficiently rigorous and is opening the door to biasing the results.  
+
+#### proof that it is possible to bias signal 
+
+To prove that it is possible to bias the signal by adjusting the z position, I acquired a high-resolution z-stacked image of a small airway epithelial cell treated with LPA for 24h. This image has 27 z stacks and has been stretched a bit and interpolated in the z direction for easier viewing. Blue = DAPI, red = HNE, and green = actin.  
+
+
+![rotating gif of stacked image, all channels](/Users/libbymurphy/Documents/Documents - Libby’s MacBook Air/GitHub/turbosquirrel/GD lab stuff/LM046/LM046-2/LPA_zstacktest_63x_allcolors_rotation.gif){width=750px}
+
+
+![rotating gif of stacked image, HNE only](/Users/libbymurphy/Documents/Documents - Libby’s MacBook Air/GitHub/turbosquirrel/GD lab stuff/LM046/LM046-2/LPA_zstacktest_63x_redonly_rotation.gif){width=750px}
+
+
+![bottom to top animation of stacks, all channels](/Users/libbymurphy/Documents/Documents - Libby’s MacBook Air/GitHub/turbosquirrel/GD lab stuff/LM046/LM046-2/LPA_zstacktest_63x_allcolors.gif){width=750px}
+
+
+![bottom to top animation of stacks, HNE only](/Users/libbymurphy/Documents/Documents - Libby’s MacBook Air/GitHub/turbosquirrel/GD lab stuff/LM046/LM046-2/LPA_zstacktest_63x_redonly.gif){width=750px}
+   
+   
+   
+   
+Visually, it is quite clear that different z heights can produce very different signal intensities. The magnitude of the differences between them are striking:  
+
+```{r quanfitication of signal, message=FALSE, warning=FALSE, echo = FALSE}
+data <- read_csv(here("LM046", "LM046-2", "LPA_zstacktest_63x_results.csv"))
+colnames(data)[1] <- "obs"
+
+data$colors <- case_when(data$Slice %in% c(8,9,10) ~ TRUE, 
+                  TRUE ~ FALSE)
+
+hne <- data[grepl(pattern = 2, data$Ch),]
+
+ggplot(hne, aes(x = Slice, y = IntDen)) +
+  geom_col(aes(fill = colors)) +
+  theme_prism() +
+  scale_fill_manual(values = c("grey30", "red")) +
+  theme(legend.position = "none") +
+  ggtitle("quantification of HNE signal per z slice, 63x mag/z=27/0.438uM slices")
+```
+
+```{r stats, warning=FALSE, echo = FALSE}
+data_filt <- data %>%
+  dplyr::filter(Ch == 2, Slice %in% c(8,9,10)) %>%
+  dplyr::select(c(Slice, IntDen))
+
+data_filt$fractionDifference <- c(
+    data_filt$IntDen[1]/data_filt$IntDen[1],
+    data_filt$IntDen[2]/data_filt$IntDen[1],
+    data_filt$IntDen[3]/data_filt$IntDen[1]
+  )
+
+data_filt
+```
+
+Notice the severe difference between the bars highlighted in red, which represent the basal surface of the cell.  
+
+Column fractionDifference in the above table represents the value of each red bar divided by the value of the first. This is meant to demonstrate that just by moving the focal plane less than 0.5uM, I can change the measured signal by more than 50%.  
+
+These slices were spaced 0.438uM apart, which due to the high magnification, is much closer than would be done in a 20x magnification experiment (the typical magnification for this experiment type; z interval typically closer to 1uM). Therefore, the magnitude of differences at lower magnification are likely to be even greater.
+
+## chapter 3: i think i need to take z stacks
+
+#### the advantages and disadvantages of z stacks
+z stacks take more time to acquire, therefore costing more money in using the cytometry core's equipment, and they produce far larger file sizes, presenting a new challenge for data transfer and storage. Use of an external hard drive routinely backed up to institutional or cloud-based large data storage will easily solve the second issue.
+
+I plan to acquire z-stacked images for every quantitative experiment, measure signal in every slice, and add the signal together to get a total signal for all z-values of that image field. I believe that this will mitigate any bias introduced by the focal plane. This process can easily be performed by applying thresholds in ImageJ as I have been doing, then using the "measure stacks" option instead of the normal "measure" option. I can write a macro which will partially automate the measurement process, mitigating the extra time investment.   
+
+There is still the issue that bias can be introduced by how closely the slices are positioned and how many of them there are. To address this, I plan to measure the height of the sample, then acquire however many 0.5uM slices are necessary to cover the entire height. I believe that this will be a fair compromise to prevent sample height from confounding signal measurement.
+

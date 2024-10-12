@@ -1,0 +1,259 @@
+---
+title: "LM030-2_MsIgMELISA_analysis"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## setup
+```{r setup, include=FALSE }
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+library(drc)
+library(tidyverse) 
+library(ggthemes) 
+library(gridExtra)
+library(splitstackshape)
+library(cowplot)
+library(ggpubr)
+library(here)
+library(dplyr) 
+```
+
+```{r read in files and join, echo=FALSE}
+#read in ELISA OD file and fix column names
+ELISA <- read_csv(here("LM030", "LM030-2_OD450.csv"))[,c(1,2,3)]
+colnames(ELISA)[2] <- "OD_450"
+
+ELISA <- ELISA %>% 
+  separate(
+    col = Sample,
+    into = c("Genotype", "treatment", "mouse"),
+    sep = "_"
+  ) 
+
+ELISA$Genotype <- ELISA$Genotype %>%
+  gsub(pattern = "blank", replacement = "stdH")
+
+dplyr::filter(ELISA, OD_450 < 0)
+
+ELISA <- ELISA %>%
+  dplyr::filter(OD_450 > 0)
+  
+```
+
+
+## ELISA model fit
+```{r model fit, include=FALSE, , echo=FALSE}
+#create object of just standards
+standards_old <- ELISA[grepl(pattern = "set1", ELISA$treatment),]
+
+standards_kit <- ELISA[grepl(pattern = "set2", ELISA$treatment),]
+
+#create a tibble for the actual concentrations by std name
+stdcrvdata_old <- data.frame(
+    data.frame(Genotype = paste0("std",c("A","A","B","B","C","C","D","D","E","E","F","F","G","G","H","H")),
+                 known = rep(c(1000,500,250,125,62.5,31.25,15.625,0),each=2))
+  ) # <clown emoji>
+
+stdcrvdata_kit <- data.frame(
+    data.frame(Genotype = paste0("std",c("A","A","B","B","C","C","D","D","E","E","F","F","G","G","H","H")),
+                 known = rep(c(1000,333,111,37,12.33,4.11,1.37,0),each=2))
+  )
+
+# sort standards and stdcrvdata by name to match
+standards_old <- standards_old %>% 
+  arrange(Genotype) %>% 
+  dplyr::select(c(Genotype,OD_450))
+
+standards_kit <- standards_kit %>% 
+  arrange(Genotype) %>% 
+  dplyr::select(c(Genotype,OD_450))
+
+stdcrvdata_old <- stdcrvdata_old %>%
+  arrange(Genotype)
+
+stdcrvdata_kit <- stdcrvdata_kit %>%
+  arrange(Genotype)
+
+# check if they are in the same order (I could change this to well location?)
+stopifnot(identical((standards_old$Genotype), stdcrvdata_old$Genotype) & identical((standards_kit$Genotype), stdcrvdata_kit$Genotype))
+
+# combine them together
+stdcrvdata_old <- data.frame(standards_old,expected=stdcrvdata_old$known)
+
+stdcrvdata_kit <- data.frame(standards_kit,expected=stdcrvdata_kit$known)
+
+stdcrvdata_old <- rename(stdcrvdata_old, measured = OD_450)
+
+stdcrvdata_kit <- rename(stdcrvdata_kit, measured = OD_450)
+
+#remove std8 (blank std) because i'm about to take -log10 of all expected and -log10 of 0 is -inf, which is unplottable
+stdcrvdata_old <- stdcrvdata_old %>% 
+  filter(expected > 0)
+
+stdcrvdata_kit <- stdcrvdata_kit %>% 
+  filter(expected > 0)
+
+#create a column in stdcrvdata with log10 known conc
+stdcrvdata_old$logconc <-log10(stdcrvdata_old$expected)
+
+stdcrvdata_kit$logconc <-log10(stdcrvdata_kit$expected)
+
+# model the standard curve using generated points.  plot those points in red.
+fit_old <- drm(formula =   measured ~ logconc , data = stdcrvdata_old, fct = LL.4()) # banana changed logconc to expected
+summary(fit_old)
+
+fit_kit <- drm(formula =   measured ~ logconc , data = stdcrvdata_kit, fct = LL.4()) # banana changed logconc to expected
+summary(fit_kit)
+
+# This is a description of the variables and terms defined in the 'fit' model.
+# x = the independent variable (Absorbance) (Concentration, estimated from the Absorbance)
+# y = the dependent variable 
+# The 4 estimated parameters consist of the following:
+
+# the minimum value that can be obtained. (this is the ABS at conc. 0)
+# a = fit$coefficients[2] 
+
+# d = the maximum value that can be obtained (i.e. what happens at infinite dose)
+
+# c = the point of inflection (i.e. the point on the S shaped curve halfway between a and d)
+
+# b = Hill’s slope of the curve (i.e. this is related to the steepness of the curve at point c).
+
+# Generate points from  model. Pick range from logconc
+x <- seq(from = 0, to = 4, length=1000) 
+
+# from OD ~ d + (a - d)/(1 + (logconc/cc)^b)
+y <- (fit_old$coefficients[2]+ (fit_old$coefficients[3]- fit_old$coefficients[2])/(1+(x/fit_old$coefficients[4])^ fit_old$coefficients[1])) 
+z <- (fit_kit$coefficients[2]+ (fit_kit$coefficients[3]- fit_kit$coefficients[2])/(1+(x/fit_kit$coefficients[4])^ fit_kit$coefficients[1])) 
+```
+
+## Calculate IgM concentration from model
+```{r calculate IgM conc, message=FALSE, warning=FALSE, echo=FALSE}
+#create object with only measurements from experimental wells
+OD <- ELISA %>% 
+  filter(!grepl("std|nsb|NA", Genotype))
+
+blank <- mean(ELISA %>%
+  dplyr::filter(Genotype == "stdH") %>%
+  pull(OD_450))
+
+# subtract blank from OD_450
+OD$OD_450 <- OD$OD_450 - blank 
+
+# split in twain for different standard curves
+OD_old <- OD
+
+OD_kit <- OD
+
+# here we are applying the equation described above to...
+OD_old$loganswer<- fit_old$coefficients[4]*( 
+  (
+    (-1* fit_old$coefficients[3]+ OD_old$OD_450)/
+      (fit_old$coefficients[2]-OD_old$OD_450))^(1/ fit_old$coefficients[1])
+  )
+
+ OD_old$conc <- 10^OD_old$loganswer 
+
+OD_old$below <- OD_old$conc < min(stdcrvdata_old$expected)
+OD_old$above <- OD_old$conc > max(stdcrvdata_old$expected)
+
+# again for kit
+# here we are applying the equation described above to...
+OD_kit$loganswer<- fit_kit$coefficients[4]*( # banana changed loganswer to answer
+  (
+    (-1* fit_kit$coefficients[3]+ OD_kit$OD_450)/
+      (fit_kit$coefficients[2]-OD_kit$OD_450))^(1/ fit_kit$coefficients[1])
+  )
+
+ OD_kit$conc <- 10^OD_kit$loganswer # banana commented out un-log transform bc answer is already natural
+# OD$conc <- OD$answer # commented this out bc i think it's from the un-log process
+
+OD_kit$below <- OD_kit$conc < min(stdcrvdata_kit$expected)
+OD_kit$above <- OD_kit$conc > max(stdcrvdata_kit$expected)
+
+
+plot(x = stdcrvdata_old$logconc, y = stdcrvdata_old$measured, main="log standard curve old std", # banana changed logconc to expected
+  xlim = c(min(x),max(x)),
+  ylim = c(min(y),max(y))
+     ) 
+  lines(x,y, lty="dotted", col="red") 
+  lines(OD_old$loganswer, OD_old$OD_450, type="points", col="blue") # banana changed OD$loganswer to OD$answer
+ggsave(plot = last_plot(), filename = "LM030-2_ME191_stdcrv_old.png", device = "png", path = here("LM030"))
+
+
+plot(x = stdcrvdata_kit$logconc, y = stdcrvdata_kit$measured, main="log standard curve kit std", # banana changed logconc to expected
+  xlim = c(min(x),max(x)),
+  ylim = c(min(z),max(z))
+     ) 
+  lines(x,z, lty="dotted", col="red") 
+  lines(OD_kit$loganswer, OD_kit$OD_450, type="points", col="blue") # banana changed OD$loganswer to OD$answer
+ggsave(plot = last_plot(), filename = "LM030-2_ME191_stdcrv_kit.png", device = "png", path = here("LM030"))
+
+# adjust concs for df
+dfs <- c(8,8,8,8,16,16,16,16,16,16,16,16)
+
+OD_old$DF <- dfs
+OD_kit$DF <- dfs
+
+OD_old$adj <- OD_old$conc * dfs
+OD_kit$adj <- OD_kit$conc * dfs
+
+# compare how similarly the standards estimated concentration
+tmp_old <- cbind(OD_old, std_source = rep("old", nrow(OD_old)))
+tmp_kit <- cbind(OD_kit, std_source = rep("kit", nrow(OD_kit)))
+
+stopifnot(colnames(tmp_old) == colnames(tmp_kit))
+
+OD_unite <- rbind(tmp_old, tmp_kit)
+
+(OD_unite[,c(5,7,12)] %>% dplyr::filter(mouse != "ms412S") %>% dplyr::filter(mouse != "ms343S")) %>%
+  ggplot(aes(mouse)) +
+  geom_col(aes(y = conc, fill = std_source), position=position_dodge()) +
+  theme_classic() 
+
+# 20231208 pm bookmark. so tired
+```
+
+## Plots  
+```{r echo=FALSE}
+
+OD$treatment <- OD$treatment %>%
+  factor(levels = c("DMEM", "H1N1"))
+OD$Genotype <- OD$Genotype %>%
+  factor(levels = c("WT", "MMP3KO"))
+
+
+pWithOutlier <- ggplot(dplyr::filter(OD, Well != "C6"), aes(Genotype, adj)) +
+  geom_boxplot(aes(fill = treatment)) +
+  geom_point(position = position_dodge(width = 0.75), aes(group = treatment)) +
+  geom_point(data = dplyr::filter(OD, Well == "C6"), position = position_dodge(width = 0.75), aes(x=Genotype, y=adj, group = treatment), color ="red") +
+  theme_classic() +
+  ggtitle("ME191: Ms IgM ELISA", subtitle = "WT H1N1 tx outlier pictured") 
+
+pNoOutlier <- ggplot(dplyr::filter(OD, Well != "C6"), aes(Genotype, adj)) +
+  geom_boxplot(aes(fill = treatment)) +
+  geom_point(position = position_dodge(width = 0.75), aes(group = treatment)) +
+  theme_classic() +
+  ggtitle("ME191: Ms IgM ELISA", subtitle = "WT H1N1 tx outlier not pictured") 
+
+
+  
+ggsave(
+  plot = pNoOutlier,
+  filename = "LM030_ME191MsIgMELISA_nooutlier_plot.png",
+  path = here::here("LM030"),
+  device = "png",
+  width = 6,
+  height = 6
+)
+
+ggsave(
+  plot = pWithOutlier,
+  filename = "LM030_ME191MsIgMELISA_withoutlier_plot.png",
+  path = here::here("LM030"),
+  device = "png",
+  width = 6,
+  height = 6
+)
+```

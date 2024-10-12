@@ -1,0 +1,194 @@
+---
+title: "LM003_WBanalysis_blot1"
+author: "Libby Murphy"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+library(dplyr)
+library(here)
+library(tidyverse)
+library(reshape2)
+library(ggsignif)
+```
+
+```{r import CSVs clown-style}
+# myfilenames <- list.dirs(path = here("LM003", "WBQuants"), full.names = F, recursive = F)
+
+samplenames <- c("min120", "min60", "min30", "min15", "min5", "unstim")
+
+
+names_ACTB_blot1 <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_ACTB_blot1) <- c("Sample", "ACTB_blot1")
+
+ACTB_blot1 <- rbind(
+  colnames(names_ACTB_blot1),
+  data.frame(  
+  "Sample" = samplenames,
+  "ACTB" = (read_csv(file = here::here("LM003", "WBQuant", "ACTB_WBQuant_blot1.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+)
+
+names_ACTB_blot2 <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_ACTB_blot2) <- c("Sample", "ACTB_blot2")
+
+ACTB_blot2 <- rbind(
+  colnames(names_ACTB_blot2),
+  data.frame(  
+  "Sample" = samplenames,
+  "ACTB" = (read_csv(file = here::here("LM003", "WBQuant", "ACTB_WBQuant_blot2.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+)
+
+names_SMAD3 <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_SMAD3) <- c("Sample", "SMAD3")
+
+SMAD3 <- rbind(
+  colnames(names_SMAD3),
+  data.frame(
+  "Sample" = samplenames,
+  "SMAD3" = (read_csv(file = here::here("LM003", "WBQuant", "SMAD3_WBQuant_blot1.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+)
+
+
+names_pSMAD <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(names_pSMAD) <- c("Sample", "pSMAD")
+
+
+pSMAD <- rbind(
+  colnames(names_pSMAD),
+  data.frame(
+  "Sample" = samplenames,
+  "pSMAD" = (read_csv(file = here::here("LM003", "WBQuant", "pSMAD3_WBQuant_blot2.csv")) %>%
+              as.data.frame() %>%
+              dplyr::select(
+                "Signal"
+  ))
+)
+) 
+
+
+stopifnot(
+  class(ACTB_blot1) == "data.frame" &
+  class(ACTB_blot2) == "data.frame" &
+  class(SMAD3) == "data.frame" &
+  class(pSMAD) == "data.frame"
+)
+
+#readxl::read_excel(path = here("LM003", "WBQuants", "LM003_wbQuant_ACTB.xls"), sheet = 1, skip = 1)
+```
+
+Plan:  
+1. build tidy dataframe containing all data
+2. divide SMAD3/ACTB_blot1 and pSMAD/ACTB_blot2
+3. divide (pSMAD/ACTB_blot2)/(SMAD3/ACTB_blot1)
+4. barplot of results normalized to HKG
+5. t test to see if there's significant changes in protein level
+
+```{r de-clownify dataframes and consolidate into tidy df}
+tmp <- left_join(
+  ACTB_blot1, ACTB_blot2, by = "Sample"
+)
+tmp <- left_join(
+  tmp, SMAD3, by = "Sample"
+)
+tmp <- left_join(
+  tmp, pSMAD, by = "Sample"
+)
+colnames(tmp) <- tmp[1,]
+WBQuant <- tmp[2:nrow(tmp),]
+rownames(WBQuant) <- WBQuant[,1]
+WBQuant <- WBQuant[,2:ncol(WBQuant)]
+
+```
+
+```{r normalize signal and remove remining clowns from the matrix}
+WBQuant$ACTB_blot1  <- as.numeric(WBQuant$ACTB_blot1)
+WBQuant$ACTB_blot2  <- as.numeric(WBQuant$ACTB_blot2 )
+WBQuant$SMAD3  <- as.numeric(WBQuant$SMAD3 )
+WBQuant$pSMAD <- as.numeric(WBQuant$pSMAD)
+
+WBQuant <- WBQuant %>%
+  dplyr::mutate(
+    "SMAD3" = SMAD3 / ACTB_blot1,
+    "pSMAD" = pSMAD / ACTB_blot2,
+    .keep = "unused"
+  ) %>%
+  dplyr::mutate(
+    "norm" = pSMAD / SMAD3,
+    .keep = "used"
+  )
+
+WBQuant <- rownames_to_column(WBQuant)
+
+WBQuant_plot <- reshape2::melt(WBQuant)
+colnames(WBQuant_plot) <- c("Sample", "Gene", "SignalNorm")
+
+WBQuant_plot$Sample <- WBQuant_plot$Sample %>%
+  factor(levels = c("unstim", "min5", "min15", "min30", "min60", "min120"))
+```
+
+```{r ggplot o'clock}
+# WBQuant_stats
+pQuant <- ggbarplot(dplyr::filter(WBQuant_plot, Gene == "norm"), 
+            x = "Sample", 
+            y = "SignalNorm",
+            fill = "Gene",
+            position = position_dodge(0.8),
+#            add = c("mean_se", "point")
+                ) +
+            ggtitle("LM003 TGF-B IMR90 stimulation timecourse: SMAD1/3/5 phosphorylation") +
+            facet_grid(cols = vars(Gene), scales = "free_y") +
+            theme(legend.position = "none") #+
+            # geom_signif(
+            #   comparisons = list(c("unstim", "stim")),
+            #   map_signif_level = TRUE,
+            #   test = t.test
+            # )
+pQuant
+
+
+ggsave(
+  filename = "LM003_WBQuant.png", plot = pQuant, device = "png", height = 4.5, width = 8, path = here::here("LM003")
+)
+          
+```
+
+```{r statistical tests}
+# stats <- list()
+# 
+# stats$aSMA_stat$summary <- as.list(
+#   summary(WBQuant$aSMA)
+# )
+# 
+# stats$aSMA_stat$Ttest <- t.test(WBQuant$aSMA)
+# 
+# 
+# stats$col1A1_stat$summary <- as.list(
+#   summary(WBQuant$col1A1)
+# )
+# 
+# stats$col1A1_stat$Ttest <- t.test(WBQuant$col1A1)
+
+```

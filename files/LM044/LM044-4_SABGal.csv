@@ -1,0 +1,13 @@
+Well ID,Name,Well,"Mean RFU [354,456]",Count,Mean
+SPL1,Alda_0uM,B1,0.213,1,0.213
+SPL2,Alda_5uM,B2,0.195,1,0.195
+SPL3,Alda_10uM,B3,0.173,1,0.173
+SPL4,Alda_20uM,B4,0.196,1,0.196
+SPL5,Alda_40uM,B5,0.187,1,0.187
+SPL6,Alda_blank,B6,0.279,1,0.279
+SPL7,Daidzin_0uM,D1,0.2,1,0.2
+SPL8,Daidzin_30uM,D2,0.199,1,0.199
+SPL9,Daidzin_60uM,D3,0.197,1,0.197
+SPL10,Daidzin_120uM,D4,0.207,1,0.207
+SPL11,Daidzin_240uM,D5,0.21,1,0.21
+SPL12,Daidzin_blank,D6,0.259,1,0.259
