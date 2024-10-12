@@ -1,3 +1,23 @@
-Welcome! This repository is a showcase of representative samples of my work in R to share as examples of my R scripting and data analysis skills during the graduate school application process.
+# Welcome! 
 
-Please note that any unpublished data has been obscured to protect our group's unpublished findings. I've done my best to make it clear when this is the case. Any documents with nonsense or generic labels (ie. "HUMAN-1" cells treated with "applejuice" and "orangejuice", plots showing expression of "GENE1", etc) have been edited and do not represent real-world data. I've also placed a clear note at the top of each document which has been altered in this way to further prevent confusion. For that reason, please do not consider any data in this repository, regardless of how it is labeled, to be reflective of any real-world biology.
+This repository is a showcase of representative samples of my work in R to share as examples of my R scripting and data analysis skills during the graduate school application process.
+
+Please note that any unpublished data has been obscured to protect our group's unpublished findings. I've done my best to make it clear when this is the case. Any documents with nonsense or generic labels (ie. "HUMAN-1" cells treated with "applejuice" and "orangejuice", plots showing expression of "GENE1", etc) have been edited and do not represent real-world data. I've also placed a clear note at the top of each document which has been altered in this way to further prevent confusion. For that reason, **please do not consider any data in this repository, regardless of how it is labeled, to be reflective of any real-world biology.**
+
+## Guide to this repository
+
+**bulk_RNAseq** is the RIP-seq analysis I performed in the Mukherjee lab and presented at the 2021 RNA Society meeting.
+
+**dose_response** is a generic example of code used to plot plate-based colorimetric dose response to a treatment, normalized to DAPI intensity in DAPI-stained cells.
+
+**ELISA** is a generic example of code used to process raw data from a sandwich ELISA assay.
+
+**enzyme_activity_assay** is a generic example of code used to process raw absorbance data over time from a colorimetric enzyme activity assay into a plot. 
+
+**gel_contraction** is a generic example of code used to process collagen gel contraction measurements into a plot showing contractive response to different stimuli.
+
+**IMR90_cellcount_to_protein** is a quick tool I made to easily convert a user-input number of IMR-90 cells and lysis buffer volume into an estimation of the total protein mass contained in those cells. This was used in an assay in which the assay's lysis buffer was incompatible with any accessible total protein estimation. We wanted to be able to relate this assay's inputs to cell and tissue total protein inputs in another assay, necessitating this tool.
+
+**proteinCHKr** is a tool to calculate the percent of an annotated protein's total amino acid content which is either cysteine, histidine, or lysine. 4-hydroxynonenal (4-HNE) forms adducts with these amino acids, so it's useful to know if a potential target protein has an unusually high or low content of C, H, and/or K. We use this as a crude early screening tool to support resource-intensive early exploration experiments with 4-HNE.
+
+**qPCR** is a generic example of code which processes qRT-PCR raw data into plots of Cq and log fold change.
